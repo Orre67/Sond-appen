@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sond appen</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M6 26 10 4h4l-4 22z' fill='%23141414'/%3E%3Cpath d='M14 10h12M14 16h10M14 22h8' stroke='%232e9e44' stroke-width='3'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <h1>Sond appen</h1>
+        <section class="panel">
+          <h2>1. Filer</h2>
+          <div id="dropzone" class="dropzone">
+            <div>Släpp filer här eller <label class="link">välj filer<input id="file-input" type="file" multiple hidden /></label></div>
+            <div class="hint">Yta: .xml (LandXML) eller .obj + .mtl + .jpg<br />Startpunkter: .txt / .csv · Sondering: .dm4</div>
+          </div>
+          <ul id="file-status" class="status"></ul>
+        </section>
+        <section class="panel">
+          <h2>2. Startpunkter</h2>
+          <textarea id="points-text" rows="4" placeholder="id, E, N, Z per rad. Komma, semikolon, tab eller mellanslag."></textarea>
+          <button id="points-apply" class="secondary">Läs in text</button>
+        </section>
+        <section class="panel">
+          <h2>3. Inställningar</h2>
+          <div class="grid">
+            <label>Måttsticka [m]<input id="opt-interval" type="number" step="0.1" min="0.1" value="1" /></label>
+            <label>Mätsätt<select id="opt-mode"><option value="stick">Sämsta värde per sticka</option><option value="point">Värde i punkten</option></select></label>
+            <label>Startdjup [m]<input id="opt-start" type="number" step="0.1" min="0" value="1" /></label>
+            <label>Söksteg [m]<input id="opt-fine" type="number" step="0.01" min="0.01" value="0.05" /></label>
+            <label>Min försättning [m]<input id="opt-min" type="number" step="0.1" min="0" value="1.5" /></label>
+            <label>Max försättning [m]<input id="opt-max" type="number" step="0.1" min="0" value="3.5" /></label>
+            <label>Bäringskorrektion [°]<input id="opt-corr" type="number" step="0.5" value="0" /></label>
+            <label>Metod<select id="opt-method"><option value="average">Medelvinkel</option><option value="tangent">Tangent</option></select></label>
+          </div>
+          <div class="hint">Sticka: hålet delas från startdjupet i stickor och varje sticka får sitt sämsta värde, sökt i söksteget. Punkt: värdet i varje punkt.</div>
+        </section>
+        <section class="panel">
+          <h2>4. Hål</h2>
+          <ul id="hole-list" class="hole-list"></ul>
+          <div id="unmatched" class="hint"></div>
+        </section>
+        <section class="panel">
+          <h2>Export</h2>
+          <div class="row">
+            <button id="btn-csv" disabled>CSV</button>
+            <button id="btn-svg" disabled>SVG, valt hål</button>
+            <button id="btn-dxf" disabled title="Ytpunkter, mätlinjer och hålbanor som 3D-linjer, ett lager per hål">DXF, alla hål</button>
+            <button id="btn-print" disabled>Skriv ut alla</button>
+          </div>
+        </section>
+        <section class="panel">
+          <h2>Dela till mobil</h2>
+          <button id="btn-share" disabled>Dela profilerna</button>
+          <div class="hint">Ritar alla profiler i stående format och skickar dem till servern. Telefoner på samma nätverk öppnar länken eller QR-koden. Där går det bara att titta, inte ändra.</div>
+          <div id="share-result" class="share-result hidden">
+            <canvas id="share-qr"></canvas>
+            <div id="share-links" class="share-links"></div>
+          </div>
+        </section>
+        <ul id="warnings" class="warnings"></ul>
+      </aside>
+      <main id="main">
+        <nav class="tabs">
+          <button data-tab="profile" class="active">Profil</button>
+          <button data-tab="scene">3D</button>
+          <button data-tab="plan">Översikt</button>
+          <button data-tab="table">Tabell</button>
+        </nav>
+        <section id="tab-profile" class="tab active">
+          <div class="toolbar">
+            <button id="prev-hole" title="Föregående hål">◀</button>
+            <select id="hole-select"></select>
+            <button id="next-hole" title="Nästa hål">▶</button>
+            <label class="check"><input id="show-all" type="checkbox" /> Visa alla</label>
+            <label class="check"><input id="show-skipped" type="checkbox" checked /> Ovanför startdjup</label>
+            <label class="check"><input id="show-trace" type="checkbox" checked /> Ytspår</label>
+            <label class="check"><input id="show-sticks" type="checkbox" checked /> Stickor</label>
+            <label class="check" title="Mått som slutar i samma ytpunkt, inom 20 cm, får en gemensam siffra: den minsta"><input id="merge-labels" type="checkbox" checked /> En siffra per ytpunkt</label>
+            <label class="check"><input id="show-front" type="checkbox" checked /> Framifrån</label>
+            <span class="hint toolbar-hint">Dra med mus eller finger längs hålet för att läsa av måttet.</span>
+          </div>
+          <div id="profile-container" class="profile-container">
+            <p class="empty">Läs in yta, startpunkter och sondering så visas profilerna här.</p>
+          </div>
+        </section>
+        <section id="tab-scene" class="tab"><div id="scene-container"></div></section>
+        <section id="tab-plan" class="tab"><div id="plan-container"><p class="empty">Översikten visas när en yta och hål finns.</p></div></section>
+        <section id="tab-table" class="tab"><div id="table-container"></div></section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

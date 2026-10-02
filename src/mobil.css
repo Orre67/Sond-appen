@@ -1,0 +1,158 @@
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --border: #dde1e6;
+  --text: #1c1f23;
+  --muted: #667085;
+  --accent: #1f6feb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+header {
+  display: grid;
+  grid-template-columns: 68px 1fr 68px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+header button {
+  height: 60px;
+  font-size: 30px;
+  line-height: 1;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  touch-action: manipulation;
+}
+
+header button:active {
+  background: #1557b8;
+}
+
+.title {
+  text-align: center;
+  min-width: 0;
+}
+
+.title b {
+  display: block;
+  font-size: 19px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title span {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.title .info {
+  font-size: 11px;
+}
+
+.title .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: 0;
+}
+
+.modebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+}
+
+.modebar button {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: #fff;
+  color: var(--accent);
+  touch-action: manipulation;
+}
+
+.modebar button:disabled {
+  opacity: 0.5;
+}
+
+.counter {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.hint {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.25;
+}
+
+main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 2px 4px;
+}
+
+main svg {
+  width: 100%;
+  height: 100%;
+  /* Ett finger: avläsning och svep hanteras av sidan. Två fingrar: webbläsarens zoom. */
+  touch-action: pinch-zoom;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 24px;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  header button {
+    height: 44px;
+    font-size: 22px;
+  }
+
+  .hint {
+    display: none;
+  }
+}

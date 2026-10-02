@@ -1,0 +1,189 @@
+/**
+ * Kommandoradsverktyg för steg 1: läser yta, startpunkter och DM4-filer,
+ * räknar försättning och skriver tabell samt CSV.
+ *
+ *   npm run calc -- --surface yta.obj --points start.txt --dm4 a.dm4 b.dm4 [--interval 0.5] [--min 1.5] [--max 3.5] [--hole 20] [--out out/forsattning.csv]
+ */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname } from "node:path";
+import { toCsv } from "../core/csv";
+import { toDxf } from "../core/dxf";
+import { linkHoles } from "../core/project";
+import { renderProfileSvg } from "../view/profile";
+import { computeHole, DEFAULT_OPTIONS, type BurdenOptions } from "../geom/burden";
+import { Surface } from "../geom/surface";
+import { parseDm4, type SondeProfile } from "../io/dm4";
+import { parseLandXml } from "../io/landxml";
+import type { MeshData } from "../io/mesh";
+import { parseObj } from "../io/obj";
+import { parseStartPoints } from "../io/startpoints";
+
+interface Args {
+  surface?: string;
+  points?: string;
+  dm4: string[];
+  hole?: string;
+  out: string;
+  svgDir?: string;
+  dxf?: string;
+  holes?: string[];
+  opts: Partial<BurdenOptions>;
+}
+
+function parseArgs(argv: string[]): Args {
+  const a: Args = { dm4: [], out: "out/forsattning.csv", opts: {} };
+  let i = 0;
+  const next = () => argv[++i];
+  for (; i < argv.length; i++) {
+    const k = argv[i];
+    switch (k) {
+      case "--surface":
+        a.surface = next();
+        break;
+      case "--points":
+        a.points = next();
+        break;
+      case "--dm4":
+        while (i + 1 < argv.length && !argv[i + 1].startsWith("--")) a.dm4.push(argv[++i]);
+        break;
+      case "--hole":
+        a.hole = next();
+        break;
+      case "--out":
+        a.out = next();
+        break;
+      case "--svg":
+        a.svgDir = next();
+        break;
+      case "--dxf":
+        a.dxf = next();
+        break;
+      case "--holes":
+        a.holes = next().split(",").map((x) => x.trim()).filter(Boolean);
+        break;
+      case "--interval":
+        a.opts.interval = Number(next());
+        break;
+      case "--min":
+        a.opts.minBurden = Number(next());
+        break;
+      case "--max":
+        a.opts.maxBurden = Number(next());
+        break;
+      case "--correction":
+        a.opts.bearingCorrection = Number(next());
+        break;
+      case "--start":
+        a.opts.startDepth = Number(next());
+        break;
+      case "--method":
+        a.opts.method = next() === "tangent" ? "tangent" : "average";
+        break;
+      case "--mode":
+        a.opts.mode = next() === "point" ? "point" : "stick";
+        break;
+      case "--fine":
+        a.opts.fineStep = Number(next());
+        break;
+      default:
+        throw new Error(`Okänt argument: ${k}`);
+    }
+  }
+  return a;
+}
+
+export function loadSurfaceFile(path: string): MeshData {
+  const ext = extname(path).toLowerCase();
+  const text = readFileSync(path, "utf8");
+  if (ext === ".obj") return parseObj(text);
+  if (ext === ".xml" || ext === ".landxml") return parseLandXml(text);
+  throw new Error(`Okänt ytformat: ${ext}`);
+}
+
+const f2 = (v: number | null) => (v === null ? "" : v.toFixed(2));
+const sv = (v: number | null, d = 2) => (v === null ? "" : v.toFixed(d).replace(".", ","));
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (!args.surface || !args.points || args.dm4.length === 0) {
+    console.error("Användning: --surface <fil> --points <fil> --dm4 <fil...> [--interval 0.5 --min 1.5 --max 3.5 --start 1 --mode stick|point --fine 0.05 --correction 0 --method average|tangent --hole 20 --out fil.csv --svg out/profiler --dxf out/kontroll.dxf --holes 19,20]");
+    process.exit(1);
+  }
+  const t0 = performance.now();
+  const mesh = loadSurfaceFile(args.surface);
+  const t1 = performance.now();
+  const surface = Surface.fromMesh(mesh);
+  const t2 = performance.now();
+  console.log(`Yta: ${basename(args.surface)} (${mesh.source}) ${surface.triangleCount} trianglar, inläst ${(t1 - t0).toFixed(0)} ms, index ${(t2 - t1).toFixed(0)} ms`);
+  console.log(`  E ${f2(surface.bounds.min[0])}..${f2(surface.bounds.max[0])}  N ${f2(surface.bounds.min[1])}..${f2(surface.bounds.max[1])}  Z ${f2(surface.bounds.min[2])}..${f2(surface.bounds.max[2])}`);
+  if (mesh.crsName) console.log(`  Koordinatsystem: ${mesh.crsName}${mesh.epsg ? ` (EPSG ${mesh.epsg})` : ""}`);
+  for (const w of mesh.warnings) console.log(`  Varning: ${w}`);
+
+  const sp = parseStartPoints(readFileSync(args.points, "utf8"));
+  console.log(`Startpunkter: ${sp.points.length} st, separator ${JSON.stringify(sp.separator)}`);
+  for (const w of sp.warnings) console.log(`  Varning: ${w}`);
+
+  const profiles: SondeProfile[] = [];
+  for (const f of args.dm4) {
+    const r = parseDm4(readFileSync(f, "utf8"), basename(f));
+    profiles.push(...r.profiles);
+    for (const w of r.warnings) console.log(`  Varning: ${w}`);
+  }
+  console.log(`Sondering: ${profiles.length} profiler från ${args.dm4.length} fil(er)`);
+
+  const link = linkHoles(sp.points, profiles);
+  for (const w of link.warnings) console.log(`  Varning: ${w}`);
+  if (link.unmatchedPoints.length) console.log(`  Startpunkter utan sondering: ${link.unmatchedPoints.map((p) => p.id).join(", ")}`);
+  if (link.unmatchedProfiles.length) console.log(`  Sondering utan startpunkt: ${link.unmatchedProfiles.map((p) => p.id).join(", ")}`);
+
+  const opts = { ...DEFAULT_OPTIONS, ...args.opts };
+  console.log(`\nInställningar: mått ${opts.interval} m, min ${opts.minBurden} m, max ${opts.maxBurden} m, startdjup ${opts.startDepth} m, metod ${opts.method}, bäringskorrektion ${opts.bearingCorrection}°`);
+
+  const t3 = performance.now();
+  const results = link.holes.map((h) => computeHole(surface, h, opts));
+  const t4 = performance.now();
+  console.log(`Beräknade ${results.length} hål på ${(t4 - t3).toFixed(0)} ms\n`);
+
+  console.log("Hål   Längd   Botten dZ   Minsta försättning   Röda   Blå");
+  for (const r of results) {
+    const low = r.rows.filter((x) => x.cls === "low").length;
+    const high = r.rows.filter((x) => x.cls === "high").length;
+    const bottom = r.path.points[r.path.points.length - 1];
+    console.log(
+      `${r.id.padStart(3)}   ${r.path.length.toFixed(1).padStart(5)}   ${(bottom[2] - r.path.collar[2]).toFixed(2).padStart(7)}      ${f2(r.minBurden).padStart(5)} @ ${r.minBurdenDepth?.toFixed(1).padStart(4)} m     ${String(low).padStart(3)}   ${String(high).padStart(3)}`,
+    );
+  }
+
+  const show = args.hole ? results.find((r) => r.id === args.hole) : results[0];
+  if (show) {
+    console.log(`\nHål ${show.id}: djup, försättning, klass, bäring/höjdvinkel till yta, fritt 3D-min`);
+    for (const row of show.rows) {
+      const tag = row.stickEnd - row.stickStart > 1e-9 ? `${row.stickStart.toFixed(1)}-${row.stickEnd.toFixed(1)}`.padStart(9) : "".padStart(9);
+      console.log(
+        `${tag} ${row.depth.toFixed(2).padStart(6)}  ${f2(row.burden).padStart(5)}  ${row.cls.padEnd(6)}  ${sv(row.bearingTo, 0).padStart(4)}° ${sv(row.elevationTo, 0).padStart(4)}°   ${f2(row.free3d).padStart(5)}`,
+      );
+    }
+  }
+
+  const exportSet = args.holes ? results.filter((r) => args.holes!.includes(r.id)) : results;
+  if (args.svgDir) {
+    if (!existsSync(args.svgDir)) mkdirSync(args.svgDir, { recursive: true });
+    const t5 = performance.now();
+    for (const r of exportSet) writeFileSync(`${args.svgDir}/hal-${r.id}.svg`, renderProfileSvg(r, surface, opts), "utf8");
+    console.log(`
+${exportSet.length} profilbilder skrivna till ${args.svgDir} på ${(performance.now() - t5).toFixed(0)} ms`);
+  }
+  if (args.dxf) {
+    const d = dirname(args.dxf);
+    if (d && !existsSync(d)) mkdirSync(d, { recursive: true });
+    writeFileSync(args.dxf, toDxf(exportSet, { startDepth: opts.startDepth }), "utf8");
+    console.log(`DXF med ${exportSet.length} hål skriven: ${args.dxf}`);
+  }
+
+  const dir = dirname(args.out);
+  if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(args.out, "﻿" + toCsv(results), "utf8");
+  console.log(`\nCSV skriven: ${args.out}`);
+}
+
+main();

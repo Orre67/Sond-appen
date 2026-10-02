@@ -1,0 +1,134 @@
+import { describe, expect, it } from "vitest";
+import { computeHole, DEFAULT_OPTIONS } from "../src/geom/burden";
+import { holeMeanBearing, holeMeanInclination, makeFrame, projectToSection, sectionSegments } from "../src/geom/section";
+import { Surface } from "../src/geom/surface";
+import type { MeshData } from "../src/io/mesh";
+import { renderPlanSvg } from "../src/view/plan";
+import { frontLayout, hoverMarkup, renderFrontSvg, renderProfile, renderProfileSvg } from "../src/view/profile";
+
+const SIN14 = Math.sin((14 * Math.PI) / 180);
+
+function quads(...q: [number, number, number][][]): MeshData {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (const [a, b, c, d] of q) {
+    const base = positions.length / 3;
+    positions.push(...a, ...b, ...c, ...d);
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  return { positions: Float64Array.from(positions), indices: Uint32Array.from(indices), source: "obj", warnings: [] };
+}
+
+const top: [number, number, number][] = [[-50, -50, 0], [2, -50, 0], [2, 50, 0], [-50, 50, 0]];
+const wall: [number, number, number][] = [[2, -50, 0], [2, 50, 0], [2, 50, -20], [2, -50, -20]];
+const floor: [number, number, number][] = [[2, -50, -20], [2, 50, -20], [60, 50, -20], [60, -50, -20]];
+
+describe("snitt", () => {
+  const surface = Surface.fromMesh(quads(top, wall, floor));
+
+  it("projektion i snittet", () => {
+    const f = makeFrame([0, 0, 0], 90);
+    const p = projectToSection(f, [3, 1, -2]);
+    expect(p.s).toBeCloseTo(3, 9);
+    expect(p.off).toBeCloseTo(-1, 9);
+    expect(p.z).toBe(-2);
+  });
+
+  it("skärning med lodrätt plan ger överyta, vägg och golv", () => {
+    const f = makeFrame([0, 0, 0], 90);
+    const segs = sectionSegments(surface, f, { sMin: -5, sMax: 10, zMin: -25, zMax: 2 });
+    expect(segs.length).toBeGreaterThan(0);
+    let sawTop = false;
+    let sawWall = false;
+    let sawFloor = false;
+    for (let i = 0; i < segs.length; i += 4) {
+      const [s0, z0, s1, z1] = [segs[i], segs[i + 1], segs[i + 2], segs[i + 3]];
+      if (Math.abs(z0) < 1e-6 && Math.abs(z1) < 1e-6) sawTop = true;
+      if (Math.abs(s0 - 2) < 1e-6 && Math.abs(s1 - 2) < 1e-6) sawWall = true;
+      if (Math.abs(z0 + 20) < 1e-6 && Math.abs(z1 + 20) < 1e-6) sawFloor = true;
+      expect(s0).toBeGreaterThanOrEqual(-5 - 1e-6);
+    }
+    expect(sawTop && sawWall && sawFloor).toBe(true);
+  });
+
+  it("huvudbäring och lutning", () => {
+    const r = computeHole(surface, { id: "x", collar: [0, 0, 0], stations: [
+      { depth: 0, bearing: 90, inclination: 14 },
+      { depth: 10, bearing: 90, inclination: 14 },
+    ] }, { interval: 1, mode: "point" });
+    expect(holeMeanBearing(r)).toBeCloseTo(90, 6);
+    expect(holeMeanInclination(r)).toBeCloseTo(14, 6);
+    const v = computeHole(surface, { id: "v", collar: [0, 0, 0], stations: [
+      { depth: 0, bearing: 0, inclination: 0 },
+      { depth: 10, bearing: 0, inclination: 0 },
+    ] }, { interval: 1, mode: "point" });
+    // Lodrätt hål: bäringen tas från mätningarnas riktning, dvs mot väggen i öster.
+    expect(holeMeanBearing(v)).toBeCloseTo(90, 6);
+  });
+
+  it("profilbild och översikt ger giltig SVG med rätt siffror", () => {
+    const r = computeHole(surface, { id: "20", collar: [0, 0, 0], stations: [
+      { depth: 0, bearing: 90, inclination: 14 },
+      { depth: 6, bearing: 90, inclination: 14 },
+    ] }, { interval: 1, mode: "point", minBurden: 1.0, maxBurden: 3.5, startDepth: 1 });
+    const opts = { ...DEFAULT_OPTIONS, interval: 1, mode: "point" as const, minBurden: 1.0, maxBurden: 3.5, startDepth: 1 };
+    const svg = renderProfileSvg(r, surface, opts);
+    expect(svg.startsWith("<svg")).toBe(true);
+    expect(svg).toContain("Hål 20");
+    // Försättningen vid 3 m: 2 - 3 sin14 = 1,27
+    expect(svg).toContain(">1,27<");
+    expect(svg).toContain("Framifrån");
+    expect(svg).toContain('class="front-trace"');
+    expect((svg.match(/<line /g) ?? []).length).toBeGreaterThan(5);
+
+    // Stickläge: ytspår och stickband finns med, och avläsningspunkterna täcker hela hålet
+    const stickOpts = { ...opts, mode: "stick" as const, fineStep: 0.1 };
+    const rs = computeHole(surface, { id: "20", collar: [0, 0, 0], stations: [
+      { depth: 0, bearing: 90, inclination: 14 },
+      { depth: 6, bearing: 90, inclination: 14 },
+    ] }, stickOpts);
+    const rendered = renderProfile(rs, surface, stickOpts);
+    expect(rendered.svg).toContain('class="trace"');
+    expect((rendered.svg.match(/class="stick"/g) ?? []).length).toBe(6);
+    expect(rendered.svg).toContain('class="hover-layer"');
+    expect(rendered.samples).toHaveLength(61);
+    expect(rendered.samples[0].depth).toBe(0);
+    expect(rendered.samples[60].burden).toBeCloseTo(2 - 6 * SIN14, 4);
+    expect(hoverMarkup(rendered.samples[30])).toContain("djup 3,00 m");
+
+    // Kompakt stående format utan vyn framifrån, och fristående vy framifrån, för telefon
+    const mobile = renderProfile(rs, surface, stickOpts, { width: 420, height: 700, compact: true, showFront: false });
+    expect(mobile.svg).toContain('width="420" height="700"');
+    expect(mobile.svg).not.toContain("Framifrån");
+    expect(mobile.svg).toContain("sticka 1,0 m");
+    expect(mobile.svg).not.toContain("Påhugg +");
+    const FL = frontLayout(rs, stickOpts, { width: 420, height: 700, compact: true });
+    expect(FL.fw).toBe(420 - 16);
+    expect(FL.latMax - FL.latMin).toBeCloseTo(FL.fw / FL.k, 6);
+    const front = renderFrontSvg(rs, stickOpts, { compact: true }, FL);
+    expect(front).toContain('data-view="front"');
+    expect(front).toContain('class="front-trace"');
+    expect(front).toContain('class="hover-layer"');
+
+    // Siffror slås ihop när måtten slutar i samma ytpunkt: en vägg som börjar först på 3 m djup
+    // gör att punkterna på 1 och 2 m båda mäter mot väggens överkant.
+    const shortWall: [number, number, number][] = [[2, -50, -3], [2, 50, -3], [2, 50, -20], [2, -50, -20]];
+    const edgeSurface = Surface.fromMesh(quads(top, shortWall, floor));
+    const edgeOpts = { ...opts, mode: "point" as const, interval: 1, startDepth: 1 };
+    const re = computeHole(edgeSurface, { id: "e", collar: [0, 0, 0], stations: [
+      { depth: 0, bearing: 90, inclination: 0 },
+      { depth: 2, bearing: 90, inclination: 0 },
+    ] }, edgeOpts);
+    expect(re.rows[1].burden).toBeCloseTo(Math.hypot(2, 2), 5);
+    expect(re.rows[2].burden).toBeCloseTo(Math.hypot(2, 1), 5);
+    const labelRe = /font-weight="700" fill="#[0-9a-f]{6}" text-anchor="end">([^<]+)</g;
+    const merged = [...renderProfileSvg(re, edgeSurface, edgeOpts).matchAll(labelRe)].map((m) => m[1]);
+    expect(merged).toEqual(["2,24"]);
+    const all = [...renderProfileSvg(re, edgeSurface, edgeOpts, { mergeLabelsWithin: 0 }).matchAll(labelRe)].map((m) => m[1]);
+    expect(all.sort()).toEqual(["2,24", "2,83"]);
+
+    const plan = renderPlanSvg([r], opts, surface.bounds, null, "20");
+    expect(plan).toContain('data-id="20"');
+    expect(plan).toContain("10 m");
+  });
+});

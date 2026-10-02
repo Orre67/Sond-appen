@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Sond appen · profiler</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M6 26 10 4h4l-4 22z' fill='%23141414'/%3E%3Cpath d='M14 10h12M14 16h10M14 22h8' stroke='%232e9e44' stroke-width='3'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <button id="prev" aria-label="Föregående hål">◀</button>
+        <div class="title">
+          <b id="title">Sond appen</b>
+          <span id="subtitle">Laddar …</span>
+          <span id="info" class="info"></span>
+        </div>
+        <button id="next" aria-label="Nästa hål">▶</button>
+      </header>
+      <div class="modebar">
+        <button id="toggle" disabled>Framifrån</button>
+        <span id="counter" class="counter"></span>
+        <span id="hint" class="hint">Dra fingret längs hålet för att läsa av. Svep för nästa hål.</span>
+      </div>
+      <main id="view"><p class="empty" id="message">Laddar profiler …</p></main>
+    </div>
+    <script type="module" src="/src/mobil.ts"></script>
+  </body>
+</html>
