@@ -12,6 +12,46 @@ describe("startpunkter", () => {
     expect(r.swappedEN).toBe(false);
   });
 
+  it("ignorerar punktkod efter koordinaterna", () => {
+    const r = parseStartPoints("1,655960.689,6645093.825,21.728,HOLE\n2,655963.557,6645096.054,22.167,HOLE\n");
+    expect(r.separator).toBe(",");
+    expect(r.points).toHaveLength(2);
+    expect(r.points[1]).toMatchObject({ id: "2", e: 655963.557, n: 6645096.054, z: 22.167 });
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  it("hittar koordinaterna i en borrlogg med fler kolumner och ordningen N E Z", () => {
+    const row = (id: string, n: string, e: string, z: string) =>
+      [id, "Hovgården260921", "17,66", "2026-09-21 16:17", "2026-09-21 16:36", n, e, z, "4,030", "0,007", "11,83", "157,72", "0", "", "", ""].join("\t");
+    const r = parseStartPoints(`${row("101", "6645093,756", "655960,664", "21,311")}\n${row("102", "6645095,937", "655963,613", "21,619")}\n`);
+    expect(r.separator).toBe("\t");
+    expect(r.points).toHaveLength(2);
+    expect(r.points[0]).toMatchObject({ id: "101", e: 655960.664, n: 6645093.756, z: 21.311 });
+    expect(r.points[1].id).toBe("102");
+    expect(r.swappedEN).toBe(true);
+    expect(r.columns).toMatchObject({ e: 7, n: 6, z: 8, order: "NEZ", total: 13 });
+    expect(r.note).toBe("koordinater i kolumn 6–8 i ordningen N E Z, övriga kolumner ignoreras");
+  });
+
+  it("ren fyrkolumnsfil ger ingen notis, extra talkolumner efter Z ignoreras", () => {
+    const plain = parseStartPoints("1,508349.00,6606556.78,126.57\n2,508349.47,6606560.50,126.69");
+    expect(plain.note).toBe("");
+    expect(plain.columns).toMatchObject({ e: 2, n: 3, z: 4, order: "ENZ" });
+    const extra = parseStartPoints("1;508349,00;6606556,78;126,57;12,5;0\n2;508349,47;6606560,50;126,69;12,5;0");
+    expect(extra.points[1]).toMatchObject({ id: "2", e: 508349.47, n: 6606560.5, z: 126.69 });
+    expect(extra.note).toContain("övriga kolumner ignoreras");
+  });
+
+  it("varnar när koordinaterna är lokala och raden har extra kolumner", () => {
+    const r = parseStartPoints("1;Projekt;1000,5;2000,5;10,0;3,5\n2;Projekt;1001,5;2001,5;10,2;3,5");
+    expect(r.points[0]).toMatchObject({ id: "1", e: 2000.5, n: 10, z: 3.5 });
+    expect(r.columns?.order).toBe("last");
+    expect(r.warnings.some((w) => w.includes("Kontrollera att det stämmer"))).toBe(true);
+    const local = parseStartPoints("1;1000,5;2000,5;10,0\n2;1001,5;2001,5;10,2");
+    expect(local.points[0]).toMatchObject({ e: 1000.5, n: 2000.5, z: 10 });
+    expect(local.warnings).toHaveLength(0);
+  });
+
   it("läser semikolon med decimalkomma", () => {
     const r = parseStartPoints("H1;508349,00;6606556,78;126,57\nH2;508349,47;6606560,50;126,69");
     expect(r.separator).toBe(";");

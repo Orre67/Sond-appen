@@ -23,6 +23,8 @@ export class Scene3D {
   private holesGroup = new THREE.Group();
   private linesGroup = new THREE.Group();
   private labelsGroup = new THREE.Group();
+  /** Startpunkter utan sondering, för kontroll av läget mot ytan. */
+  private pointsGroup = new THREE.Group();
   private pickables: THREE.Object3D[] = [];
   private holeMaterials = new Map<string, THREE.MeshStandardMaterial>();
   private holeMeshes = new Map<string, THREE.Mesh[]>();
@@ -30,10 +32,19 @@ export class Scene3D {
   private needsRender = true;
   private raycaster = new THREE.Raycaster();
   private downPos: { x: number; y: number } | null = null;
+  /** Anropas när ytans textur har lästs in (eller misslyckats), så att bilder ur modellen kan ritas om. */
+  onTextureLoaded: (() => void) | null = null;
+  private textureLoading = false;
+
+  /** Falskt medan texturen fortfarande läses in: bilder renderade då blir svarta. */
+  get textureReady(): boolean {
+    return !this.textureLoading;
+  }
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // alpha: ortofotot till översikten renderas med genomskinlig omgivning
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(0xe9edf2);
@@ -49,7 +60,7 @@ export class Scene3D {
     hemi.position.set(0, 0, 1);
     const sun = new THREE.DirectionalLight(0xffffff, 1.4);
     sun.position.set(-60, -80, 120);
-    this.scene.add(hemi, sun, this.holesGroup, this.linesGroup, this.labelsGroup);
+    this.scene.add(hemi, sun, this.holesGroup, this.linesGroup, this.labelsGroup, this.pointsGroup);
 
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
@@ -95,11 +106,21 @@ export class Scene3D {
       mat.dispose();
     }
     this.origin = surface.origin;
+    this.textureLoading = false;
     let geometry: THREE.BufferGeometry;
     let material: THREE.Material;
     if (textureUrl && mesh.uvs && mesh.uvIndices) {
       geometry = buildTexturedGeometry(mesh, surface.origin);
-      const tex = new THREE.TextureLoader().load(textureUrl, () => this.requestRender());
+      this.textureLoading = true;
+      const done = () => {
+        this.textureLoading = false;
+        this.requestRender();
+        this.onTextureLoaded?.();
+      };
+      const tex = new THREE.TextureLoader().load(textureUrl, done, undefined, (err) => {
+        console.warn("Texturen kunde inte läsas in", err);
+        done();
+      });
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
       material = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
@@ -188,6 +209,27 @@ export class Scene3D {
     this.requestRender();
   }
 
+  /** Startpunkter som saknar sondering ritas som orange markörer med etikett, så att påhuggens läge mot ytan kan kontrolleras. */
+  setPoints(points: { id: string; e: number; n: number; z: number }[]): void {
+    for (const child of [...this.pointsGroup.children]) {
+      this.pointsGroup.remove(child);
+      disposeObject(child);
+    }
+    const o = this.origin;
+    for (const p of points) {
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(0.28, 16, 12),
+        new THREE.MeshStandardMaterial({ color: 0xe08a1e, roughness: 0.5 }),
+      );
+      marker.position.set(p.e - o[0], p.n - o[1], p.z - o[2]);
+      this.pointsGroup.add(marker);
+      const label = makeLabel(p.id);
+      label.position.copy(marker.position).add(new THREE.Vector3(0, 0, 1.1));
+      this.pointsGroup.add(label);
+    }
+    this.requestRender();
+  }
+
   select(id: string | null): void {
     this.selectedId = id;
     this.applySelection();
@@ -222,7 +264,7 @@ export class Scene3D {
     cam.up.set(0, 1, 0);
     cam.lookAt(cx, cy, 0);
     cam.updateProjectionMatrix();
-    return this.renderWithCamera(cam, px, py);
+    return this.renderWithCamera(cam, px, py, true);
   }
 
   /**
@@ -262,17 +304,31 @@ export class Scene3D {
     return this.renderWithCamera(cam, px, py);
   }
 
-  private renderWithCamera(cam: THREE.Camera, px: number, py: number): string {
+  /** Renderar bara ytan med given kamera. Med transparent blir allt utanför modellen genomskinligt. */
+  private renderWithCamera(cam: THREE.Camera, px: number, py: number, transparent = false): string {
     const prev = new THREE.Vector2();
     this.renderer.getSize(prev);
     const prevPixelRatio = this.renderer.getPixelRatio();
-    const groups = [this.holesGroup, this.linesGroup, this.labelsGroup];
+    const prevBackground = this.scene.background;
+    const prevClear = new THREE.Color();
+    this.renderer.getClearColor(prevClear);
+    const prevAlpha = this.renderer.getClearAlpha();
+    const groups = [this.holesGroup, this.linesGroup, this.labelsGroup, this.pointsGroup];
     const vis = groups.map((g) => g.visible);
     groups.forEach((g) => (g.visible = false));
+    if (transparent) {
+      this.scene.background = null;
+      this.renderer.setClearColor(0x000000, 0);
+    }
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(px, py, false);
     this.renderer.render(this.scene, cam);
-    const url = this.renderer.domElement.toDataURL("image/jpeg", 0.85);
+    // Genomskinlighet kräver ett format med alfakanal. Webbläsare utan WebP-kodning ger PNG.
+    const url = transparent
+      ? this.renderer.domElement.toDataURL("image/webp", 0.9)
+      : this.renderer.domElement.toDataURL("image/jpeg", 0.85);
+    this.scene.background = prevBackground;
+    this.renderer.setClearColor(prevClear, prevAlpha);
     groups.forEach((g, i) => (g.visible = vis[i]));
     this.renderer.setPixelRatio(prevPixelRatio);
     this.renderer.setSize(Math.max(1, prev.x), Math.max(1, prev.y), false);

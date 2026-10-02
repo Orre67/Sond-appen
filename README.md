@@ -44,16 +44,31 @@ Flikar:
 Export: CSV för Excel, SVG av vald profil, DXF för kontroll, samt "Skriv ut alla" som ger en
 sida per hål och kan sparas som PDF i webbläsarens utskriftsdialog.
 
+## Översikten: skjutriktning och omnumrering
+
+Fliken Översikt visar ortofotot uppifrån med hålens spår och nummer, utan mått och färger, samt
+startpunkter som saknar sondering (grå) eller nummer (ihåliga). Scrollhjulet zoomar, dra flyttar
+kartan och "Hela ytan" återställer. Ange skjutriktningen i grader, eller tryck
+"Rita riktning" och dra en linje längs raden från höger till vänster: riktningen blir vinkelrät
+mot linjen och kartan vrids så att den pekar uppåt. Hålens spår ska då peka uppåt.
+
+När numreringen i startpunktsfilen inte stämmer med sonderingsfilen: "Nollställ numrering" tar
+bort alla nummer, klicka sedan på hålen i tur och ordning så får de 1, 2, 3 … från startvärdet.
+"Numrera onumrerade" ger resten nummer i filens ordning från sista numret. Upptagna nummer hoppas
+över. "Originalnummer" återgår till filens numrering. Omnumreringen och skjutriktningen sparas i
+webbläsaren per fil, och hålets ursprungliga nummer visas inom parentes under det nya.
+
 ## Mobilsidan för sprängarna
 
-Knappen "Dela profilerna" ritar alla profiler i stående format, både snitt och vy framifrån,
-och skickar paketet till servern. Svaret är en länk och en QR-kod. Telefoner på samma nätverk
-öppnar `http://<datorns ip>:5173/mobil.html?s=<id>` och ser profilerna utan att kunna ändra
-något:
+Knappen "Dela profilerna" skickar hålens resultat, ytans snitt längs varje hål och en färdigritad
+vy framifrån till servern. Svaret är en länk och en QR-kod. Telefoner på samma nätverk öppnar
+`http://<datorns ip>:5173/mobil.html?s=<id>` och ser profilerna utan att kunna ändra något.
+Snittet ritas på telefonen i skärmens egen storlek, så bilden fyller skärmen oavsett modell
+och vridning:
 
 - Dra fingret längs hålet så visas försättningen och djupet där fingret är, och markeringen
   står kvar när fingret lyfts.
-- Knappen "Framifrån" växlar till väggen framifrån och tillbaka.
+- Knappen "Framifrån" nere till höger växlar till väggen framifrån och tillbaka.
 - Svep åt höger ger nästa hål, svep åt vänster föregående. De två stora pilarna överst gör samma sak.
 
 Under utveckling tar dev-servern emot paketen via `POST /api/share` och sparar dem i
@@ -81,7 +96,7 @@ npm run calc -- --surface yta.obj --points startpunkter.txt --dm4 fil1.dm4 fil2.
 | Flagga | Betydelse | Standard |
 |---|---|---|
 | `--surface` | LandXML (.xml) eller OBJ (.obj) | krävs |
-| `--points` | Textfil med `id, E, N, Z`, valfri separator | krävs |
+| `--points` | Textfil med hål-id och E, N, Z. Koordinaterna känns igen på värdena (SWEREF 99 TM, även i ordningen N E Z), övriga kolumner ignoreras | krävs |
 | `--dm4` | En eller flera DM4-filer, matchas på Profile Number = hål-ID | krävs |
 | `--interval` | Måttstickans längd, eller avståndet mellan punkter i punktläge, m | 1.0 |
 | `--mode` | `stick`: sämsta värdet inom varje sticka. `point`: värdet i punkten | stick |

@@ -440,3 +440,50 @@ button:disabled {
     width: 100%;
   }
 }
+
+/* Översiktens verktygsrad: skjutriktning och omnumrering */
+.toolbar .field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.toolbar input[type="number"] {
+  width: 64px;
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid #cfd4da;
+  border-radius: 6px;
+}
+
+.toolbar .sep {
+  width: 1px;
+  height: 22px;
+  background: #cfd4da;
+  margin: 0 4px;
+}
+
+.toolbar button.active {
+  background: #f0a500;
+  border-color: #f0a500;
+  color: #111;
+}
+
+#plan-container.numbering svg,
+#plan-container.drawing svg {
+  cursor: crosshair;
+}
+
+#plan-container.drawing svg {
+  touch-action: none;
+}
+
+#plan-container svg {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#plan-container svg text {
+  pointer-events: none;
+}

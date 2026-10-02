@@ -18,12 +18,10 @@
         </div>
         <button id="next" aria-label="Nästa hål">▶</button>
       </header>
-      <div class="modebar">
-        <button id="toggle" disabled>Framifrån</button>
-        <span id="counter" class="counter"></span>
-        <span id="hint" class="hint">Dra fingret längs hålet för att läsa av. Svep för nästa hål.</span>
-      </div>
-      <main id="view"><p class="empty" id="message">Laddar profiler …</p></main>
+      <main>
+        <div id="view"><p class="empty" id="message">Laddar profiler …</p></div>
+        <button id="toggle" class="fab" disabled>Framifrån</button>
+      </main>
     </div>
     <script type="module" src="/src/mobil.ts"></script>
   </body>

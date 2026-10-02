@@ -2,6 +2,8 @@ import "./style.css";
 import { classifyFile, downloadText, parseMeshInWorker } from "./app/files";
 import { toCsv } from "./core/csv";
 import { toDxf } from "./core/dxf";
+import { checkCollars } from "./core/check";
+import { applyRenames, assignNumber, clearNumbers, numberUnnumbered, type Applied, type Renames } from "./core/numbering";
 import { linkHoles } from "./core/project";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions, type HoleResult } from "./geom/burden";
 import { Surface } from "./geom/surface";
@@ -10,11 +12,21 @@ import type { MeshData } from "./io/mesh";
 import { parseMtl } from "./io/obj";
 import { parseStartPoints, type StartPoint } from "./io/startpoints";
 import { CLASS_COLORS, fmt, holeClass } from "./view/format";
-import { renderPlanSvg } from "./view/plan";
+import { blastBearingFromLine, planFrame, renderPlanSvg, rotatedExtent, type PlanFrame, type PlanPoint } from "./view/plan";
 import QRCode from "qrcode";
 import { uploadShare, type ShareBundle } from "./core/share";
 import { attachHover } from "./view/hover";
-import { frontLayout, holeInfoText, profileLayout, renderFrontSvg, renderProfile, renderProfileSvg, type ProfileStyle } from "./view/profile";
+import { sectionSegments } from "./geom/section";
+import {
+  frontLayout,
+  holeInfoText,
+  profileLayout,
+  renderFrontSvg,
+  renderProfile,
+  renderProfileSvg,
+  sectionWindowFor,
+  type ProfileStyle,
+} from "./view/profile";
 import { Scene3D } from "./view/scene3d";
 import { renderTable } from "./view/table";
 
@@ -40,6 +52,7 @@ const state = {
   mtlTextures: {} as Record<string, string>,
   points: [] as StartPoint[],
   pointsWarnings: [] as string[],
+  collarWarnings: [] as string[],
   profiles: new Map<string, SondeProfile[]>(),
   dm4Warnings: new Map<string, string[]>(),
   files: [] as FileEntry[],
@@ -57,10 +70,29 @@ const state = {
   unmatchedProfiles: [] as string[],
   planBg: null as string | null,
   planBgSurface: null as Surface | null,
+  /** Omnumrering av startpunkter, per startpunktsfil (pointsSource), sparas i webbläsaren. */
+  renames: new Map() as Renames,
+  pointsSource: "",
+  applied: { numbered: [], unnumbered: [] } as Applied,
+  /** Hål-id -> id i filen för omnumrerade hål. */
+  sourceIds: new Map<string, string>(),
+  /** Skjutriktning i grader, per ytmodell, sparas i webbläsaren. */
+  blastBearing: null as number | null,
+  blastBearingFor: null as string | null,
+  numbering: null as { next: number } | null,
+  drawingDirection: false,
+  /** Översiktens zoom och läge som viewBox, null = hela ytan. */
+  planView: null as { x: number; y: number; w: number; h: number } | null,
 };
 
 const scene = new Scene3D($("scene-container"));
 scene.onSelect = (id) => selectHole(id, true);
+// Texturen läses in asynkront. Ortofotot och vyerna framifrån som renderats innan dess är svarta, så rita om.
+scene.onTextureLoaded = () => {
+  state.planBg = null;
+  schedulePlanBackground();
+  renderProfileView();
+};
 
 // ---------- Filer ----------
 
@@ -147,6 +179,7 @@ async function loadMesh(file: File, kind: "obj" | "landxml"): Promise<void> {
   const mesh = await parseMeshInWorker(file, kind);
   const surface = Surface.fromMesh(mesh);
   state.mesh = mesh;
+  state.planView = null;
   state.meshName = file.name;
   state.surface = surface;
   state.planBg = null;
@@ -164,7 +197,8 @@ async function loadMesh(file: File, kind: "obj" | "landxml"): Promise<void> {
 
 function schedulePlanBackground(): void {
   setTimeout(() => {
-    if (!state.surface) return;
+    // Väntar texturen fortfarande kommer onTextureLoaded att schemalägga igen.
+    if (!state.surface || !scene.textureReady) return;
     try {
       state.planBg = scene.renderTopDown(state.surface.bounds, 1800);
       state.planBgSurface = state.surface;
@@ -184,7 +218,56 @@ function applyPointsText(text: string, source: string): void {
   const r = parseStartPoints(text);
   state.points = r.points;
   state.pointsWarnings = r.warnings;
-  setFile(source, "Startpunkter", r.points.length > 0 ? "klar" : "fel", `${r.points.length} punkter`);
+  state.pointsSource = source;
+  state.renames = loadRenames(source);
+  state.numbering = null;
+  setFile(source, "Startpunkter", r.points.length > 0 ? "klar" : "fel", `${r.points.length} punkter${r.note ? `, ${r.note}` : ""}`);
+}
+
+// ---------- Omnumrering och skjutriktning sparas i webbläsaren, per fil ----------
+
+const renamesKey = (source: string) => `sond-appen:numrering:${source}`;
+const bearingKey = (mesh: string) => `sond-appen:skjutriktning:${mesh}`;
+
+function loadRenames(source: string): Renames {
+  try {
+    const raw = localStorage.getItem(renamesKey(source));
+    if (raw) return new Map(JSON.parse(raw) as [string, string | null][]);
+  } catch {
+    // Ingen lagring tillgänglig: börja tomt
+  }
+  return new Map();
+}
+
+function saveRenames(): void {
+  try {
+    if (state.renames.size === 0) localStorage.removeItem(renamesKey(state.pointsSource));
+    else localStorage.setItem(renamesKey(state.pointsSource), JSON.stringify([...state.renames]));
+  } catch {
+    // Ingen lagring tillgänglig
+  }
+}
+
+function loadBlastBearing(mesh: string): number | null {
+  try {
+    const raw = localStorage.getItem(bearingKey(mesh));
+    if (raw !== null && raw !== "" && Number.isFinite(Number(raw))) return Number(raw);
+  } catch {
+    // Ingen lagring tillgänglig
+  }
+  return null;
+}
+
+function setBlastBearing(value: number | null): void {
+  state.blastBearing = value;
+  state.blastBearingFor = state.meshName;
+  state.planView = null;
+  try {
+    if (value === null) localStorage.removeItem(bearingKey(state.meshName));
+    else localStorage.setItem(bearingKey(state.meshName), String(value));
+  } catch {
+    // Ingen lagring tillgänglig
+  }
 }
 
 function renderFileStatus(): void {
@@ -225,10 +308,14 @@ function readOptions(): BurdenOptions {
 function recompute(): void {
   state.opts = readOptions();
   const profiles = [...state.profiles.values()].flat();
-  const link = linkHoles(state.points, profiles);
+  state.applied = applyRenames(state.points, state.renames);
+  state.sourceIds = new Map(state.applied.numbered.filter((p) => p.sourceId !== p.id).map((p) => [p.id, p.sourceId]));
+  const link = linkHoles(state.applied.numbered, profiles);
   state.linkWarnings = link.warnings;
   state.unmatchedPoints = link.unmatchedPoints.map((p) => p.id);
   state.unmatchedProfiles = link.unmatchedProfiles.map((p) => p.id);
+  // Påhugg som inte ligger på ytmodellen avslöjar fel koordinater som ingen filtolkning kan se.
+  state.collarWarnings = state.surface ? checkCollars(state.surface, link.holes) : [];
 
   if (state.surface && link.holes.length > 0) {
     const surface = state.surface;
@@ -248,6 +335,7 @@ function recompute(): void {
   if (!state.results.some((r) => r.id === state.selectedId)) state.selectedId = state.results[0]?.id ?? null;
 
   scene.setResults(state.results, state.opts);
+  scene.setPoints(pointsWithoutHole().map((p) => ({ id: p.id ?? `(${p.sourceId})`, e: p.e, n: p.n, z: p.z })));
   scene.select(state.selectedId);
   renderHoleList();
   renderWarnings();
@@ -285,6 +373,7 @@ function renderHoleList(): void {
   const unmatched: string[] = [];
   if (state.unmatchedPoints.length) unmatched.push(`Startpunkter utan sondering: ${state.unmatchedPoints.join(", ")}`);
   if (state.unmatchedProfiles.length) unmatched.push(`Sondering utan startpunkt: ${state.unmatchedProfiles.join(", ")}`);
+  if (state.applied.unnumbered.length) unmatched.push(`Utan nummer: ${state.applied.unnumbered.length} startpunkter (numrera i Översikt)`);
   if (state.results.length === 0) {
     const missing: string[] = [];
     if (!state.surface) missing.push("yta");
@@ -389,18 +478,244 @@ function renderProfileView(): void {
   svgs.forEach((svg, i) => attachHover(svg, rendered[i].samples));
 }
 
+/** Startpunkter som inte blev beräknade hål: utan sondering, eller utan nummer. */
+function pointsWithoutHole(): (PlanPoint & { z: number })[] {
+  const has = new Set(state.results.map((r) => r.id));
+  return [
+    ...state.applied.numbered.filter((p) => !has.has(p.id)).map((p) => ({ id: p.id, sourceId: p.sourceId, e: p.e, n: p.n, z: p.z })),
+    ...state.applied.unnumbered.map((p) => ({ id: null, sourceId: p.sourceId, e: p.e, n: p.n, z: p.z })),
+  ];
+}
+
 function renderPlan(): void {
   const c = $("plan-container");
-  if (!state.surface || state.results.length === 0) {
-    c.innerHTML = `<p class="empty">Översikten visas när en yta och hål finns.</p>`;
+  if (state.blastBearingFor !== state.meshName) {
+    state.blastBearing = loadBlastBearing(state.meshName);
+    state.blastBearingFor = state.meshName;
+  }
+  updatePlanToolbar();
+  if (!state.surface) {
+    c.innerHTML = `<p class="empty">Översikten visas när en yta är inläst.</p>`;
     return;
   }
+  const points = pointsWithoutHole();
   const bg = state.planBg && state.planBgSurface === state.surface ? { dataUrl: state.planBg } : null;
-  c.innerHTML = renderPlanSvg(state.results, state.opts, state.surface.bounds, bg, state.selectedId);
-  for (const g of c.querySelectorAll<SVGGElement>("g.plan-hole")) {
-    g.addEventListener("click", () => selectHole(g.dataset.id ?? null, false));
+  // Ramen följer modellens verkliga utbredning i den vridna vyn, inte dess rektangel i E N.
+  const extent = state.mesh ? rotatedExtent(state.mesh.positions, state.surface.bounds, state.blastBearing, 4) : null;
+  const frame = planFrame(state.surface.bounds, state.blastBearing, 3, extent);
+  c.innerHTML = renderPlanSvg(state.results, state.opts, state.surface.bounds, bg, state.selectedId, {
+    bearing: state.blastBearing,
+    points,
+    sourceIds: state.sourceIds,
+    numbering: state.numbering !== null,
+    extent,
+  });
+  const svg = c.querySelector("svg");
+  if (!svg) return;
+  if (state.planView) {
+    const v = state.planView;
+    svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`);
   }
+  for (const g of c.querySelectorAll<SVGGElement>("g.plan-hole, g.plan-point")) {
+    g.addEventListener("click", (e) => {
+      if (state.drawingDirection || planDragged) return;
+      if (state.numbering) {
+        e.stopPropagation();
+        numberPoint(g.dataset.source ?? "");
+        return;
+      }
+      if (g.classList.contains("plan-hole")) selectHole(g.dataset.id ?? null, false);
+    });
+  }
+  attachPlanNavigation(svg, frame);
+  attachDirectionDrawing(svg, frame);
 }
+
+let planDragged = false;
+
+/** Scrollhjulet zoomar kring pekaren, dra flyttar kartan, dubbelklick visar hela ytan. */
+function attachPlanNavigation(svg: SVGSVGElement, frame: PlanFrame): void {
+  const fit = { x: 0, y: 0, w: frame.w, h: frame.h };
+  const view = () => state.planView ?? fit;
+  const apply = (v: { x: number; y: number; w: number; h: number } | null) => {
+    state.planView = v;
+    const b = v ?? fit;
+    svg.setAttribute("viewBox", `${b.x} ${b.y} ${b.w} ${b.h}`);
+  };
+  const toView = (clientX: number, clientY: number): [number, number] | null => {
+    const m = svg.getScreenCTM();
+    if (!m) return null;
+    const p = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
+    return [p.x, p.y];
+  };
+  svg.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const p = toView(e.clientX, e.clientY);
+      if (!p) return;
+      const v = view();
+      const k = e.deltaY > 0 ? 1.2 : 1 / 1.2;
+      const w = Math.min(fit.w * 2, Math.max(fit.w / 60, v.w * k));
+      const s = w / v.w;
+      apply({ x: p[0] - (p[0] - v.x) * s, y: p[1] - (p[1] - v.y) * s, w, h: v.h * s });
+    },
+    { passive: false },
+  );
+  let drag: { x: number; y: number; view: { x: number; y: number; w: number; h: number }; scale: number } | null = null;
+  svg.addEventListener("pointerdown", (e) => {
+    if (state.drawingDirection || e.button !== 0) return;
+    // Annars börjar webbläsaren markera etiketterna när kartan dras
+    e.preventDefault();
+    const m = svg.getScreenCTM();
+    drag = { x: e.clientX, y: e.clientY, view: view(), scale: m ? 1 / m.a : 0 };
+    planDragged = false;
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    if (!planDragged && Math.hypot(dx, dy) < 4) return;
+    if (!planDragged) {
+      planDragged = true;
+      svg.setPointerCapture(e.pointerId);
+    }
+    apply({ ...drag.view, x: drag.view.x - dx * drag.scale, y: drag.view.y - dy * drag.scale });
+  });
+  const stop = () => {
+    drag = null;
+    // Klicket som följer på ett drag ska varken välja eller numrera ett hål
+    if (planDragged) setTimeout(() => (planDragged = false), 0);
+  };
+  svg.addEventListener("pointerup", stop);
+  svg.addEventListener("pointercancel", stop);
+  svg.addEventListener("dblclick", () => apply(null));
+}
+
+/** Numreringsläge: klickad punkt får nästa nummer, upptagna nummer hoppas över. */
+function numberPoint(sourceId: string): void {
+  if (!state.numbering || !sourceId) return;
+  const n = assignNumber(state.renames, state.points, sourceId, state.numbering.next);
+  state.numbering.next = n + 1;
+  saveRenames();
+  recompute();
+}
+
+function numberFrom(): number {
+  const v = Number($<HTMLInputElement>("num-from").value);
+  return Number.isFinite(v) ? Math.max(0, Math.round(v)) : 1;
+}
+
+/** Rita skjutriktning: dra en linje längs raden, riktningen blir vinkelrät mot den och kartan vrids. */
+function attachDirectionDrawing(svg: SVGSVGElement, F: PlanFrame): void {
+  const overlay = svg.querySelector("#plan-overlay");
+  let start: [number, number] | null = null;
+  const toView = (e: PointerEvent): [number, number] | null => {
+    const m = svg.getScreenCTM();
+    if (!m) return null;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+    return [p.x, p.y];
+  };
+  svg.addEventListener("pointerdown", (e) => {
+    if (!state.drawingDirection) return;
+    start = toView(e);
+    svg.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!start || !overlay) return;
+    const p = toView(e);
+    if (!p) return;
+    overlay.innerHTML = `<line x1="${start[0].toFixed(2)}" y1="${start[1].toFixed(2)}" x2="${p[0].toFixed(2)}" y2="${p[1].toFixed(2)}" stroke="#e08a1e" stroke-width="0.35" stroke-dasharray="0.8 0.5"/>`;
+  });
+  const end = (e: PointerEvent) => {
+    if (!start) return;
+    const s = start;
+    start = null;
+    if (overlay) overlay.innerHTML = "";
+    const p = toView(e);
+    if (!p) return;
+    const [e0, n0] = F.toWorld(s[0], s[1]);
+    const [e1, n1] = F.toWorld(p[0], p[1]);
+    if (Math.hypot(e1 - e0, n1 - n0) < 1) return; // för kort för att vara en riktning
+    setBlastBearing(blastBearingFromLine(e0, n0, e1, n1));
+    state.drawingDirection = false;
+    renderPlan();
+  };
+  svg.addEventListener("pointerup", end);
+  svg.addEventListener("pointercancel", () => {
+    start = null;
+    if (overlay) overlay.innerHTML = "";
+  });
+}
+
+function updatePlanToolbar(): void {
+  const input = $<HTMLInputElement>("blast-bearing");
+  if (document.activeElement !== input) input.value = state.blastBearing === null ? "" : String(state.blastBearing);
+  $("blast-draw").classList.toggle("active", state.drawingDirection);
+  const start = $<HTMLButtonElement>("num-start");
+  start.classList.toggle("active", state.numbering !== null);
+  start.textContent = state.numbering ? `Numrerar, nästa ${state.numbering.next}` : "Numrera om";
+  const unnumbered = state.applied.unnumbered.length;
+  const rest = $<HTMLButtonElement>("num-rest");
+  rest.disabled = unnumbered === 0;
+  rest.textContent = unnumbered ? `Numrera ${unnumbered} onumrerade` : "Numrera onumrerade";
+  $<HTMLButtonElement>("num-reset").disabled = state.renames.size === 0;
+  $("plan-hint").textContent = state.drawingDirection
+    ? "Dra en linje längs raden från höger till vänster. Skjutriktningen blir vinkelrät mot linjen."
+    : state.numbering
+      ? `Klicka på hålen i tur och ordning. Nästa nummer: ${state.numbering.next}. Upptagna nummer hoppas över. Esc avslutar.`
+      : "";
+  const c = $("plan-container");
+  c.classList.toggle("numbering", state.numbering !== null);
+  c.classList.toggle("drawing", state.drawingDirection);
+}
+
+$("plan-fit").addEventListener("click", () => {
+  state.planView = null;
+  renderPlan();
+});
+$<HTMLInputElement>("blast-bearing").addEventListener("change", (e) => {
+  const v = (e.target as HTMLInputElement).value.trim();
+  const n = Number(v);
+  setBlastBearing(v === "" || !Number.isFinite(n) ? null : ((Math.round(n) % 360) + 360) % 360);
+  renderPlan();
+});
+$("blast-draw").addEventListener("click", () => {
+  state.drawingDirection = !state.drawingDirection;
+  state.numbering = null;
+  renderPlan();
+});
+$("num-start").addEventListener("click", () => {
+  state.numbering = state.numbering ? null : { next: numberFrom() };
+  state.drawingDirection = false;
+  renderPlan();
+});
+$("num-rest").addEventListener("click", () => {
+  numberUnnumbered(state.renames, state.points);
+  saveRenames();
+  recompute();
+});
+$("num-clear").addEventListener("click", () => {
+  clearNumbers(state.renames, state.points);
+  saveRenames();
+  state.numbering = { next: numberFrom() };
+  state.drawingDirection = false;
+  recompute();
+});
+$("num-reset").addEventListener("click", () => {
+  state.renames = new Map();
+  saveRenames();
+  state.numbering = null;
+  recompute();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && (state.numbering || state.drawingDirection)) {
+    state.numbering = null;
+    state.drawingDirection = false;
+    renderPlan();
+  }
+});
 
 function renderTableView(): void {
   $("table-container").innerHTML = renderTable(state.results, state.selectedId, state.showAll);
@@ -410,6 +725,7 @@ function renderWarnings(): void {
   const all = [
     ...(state.mesh?.warnings ?? []),
     ...state.pointsWarnings,
+    ...state.collarWarnings,
     ...[...state.dm4Warnings.values()].flat(),
     ...state.linkWarnings,
   ];
@@ -455,6 +771,10 @@ $("btn-share").addEventListener("click", () => void shareToMobile());
 /** Ritar alla profiler i stående format, skickar paketet till servern och visar länk och QR-kod. */
 async function shareToMobile(): Promise<void> {
   if (!state.surface || state.results.length === 0) return;
+  if (!scene.textureReady) {
+    alert("Texturen läses fortfarande in. Vänta en stund och försök igen, annars blir vyerna framifrån svarta.");
+    return;
+  }
   const btn = $<HTMLButtonElement>("btn-share");
   btn.disabled = true;
   btn.textContent = "Ritar profiler …";
@@ -476,12 +796,19 @@ async function shareToMobile(): Promise<void> {
 
 function buildShareBundle(): ShareBundle {
   const surface = state.surface!;
-  const base: Partial<ProfileStyle> = { ...profileStyle(), width: 420, height: 740, compact: true, showFront: false };
+  const style = {
+    showSkipped: state.showSkipped,
+    showTrace: state.showTrace,
+    showSticks: state.showSticks,
+    mergeLabelsWithin: state.mergeLabels ? 0.2 : 0,
+  };
   const holes = state.results.map((r) => {
-    const section = renderProfile(r, surface, state.opts, base);
+    // Ytans snitt med marginal: telefonen ritar snittet själv i sin egen skärmstorlek.
+    const win = sectionWindowFor(r, state.opts, { ...style, compact: true });
+    const section = Array.from(sectionSegments(surface, win.frame, win));
     let frontSvg: string | null = null;
     try {
-      const L = frontLayout(r, state.opts, { width: 420, height: 740, compact: true, showTrace: state.showTrace, showSkipped: state.showSkipped });
+      const L = frontLayout(r, state.opts, { width: 420, height: 620, compact: true, showTrace: state.showTrace, showSkipped: state.showSkipped });
       const img = scene.renderFront(r.path.collar, L.frame.u, L.frame.n, L.latMin, L.latMax, L.zMin, L.zMax, Math.round(L.fw * 2.2));
       frontSvg = renderFrontSvg(r, state.opts, { compact: true, showTrace: state.showTrace }, L, img ?? undefined);
     } catch (err) {
@@ -493,22 +820,17 @@ function buildShareBundle(): ShareBundle {
       minBurdenDepth: r.minBurdenDepth,
       cls: holeClass(r, state.opts),
       info: holeInfoText(r),
-      sectionSvg: section.svg,
-      sectionSamples: section.samples,
+      result: r,
+      section,
       frontSvg,
     };
   });
   return {
-    version: 1,
+    version: 2,
     name: state.meshName.replace(/\.[^.]+$/, "") || "salva",
     created: new Date().toISOString(),
-    opts: {
-      interval: state.opts.interval,
-      mode: state.opts.mode,
-      minBurden: state.opts.minBurden,
-      maxBurden: state.opts.maxBurden,
-      startDepth: state.opts.startDepth,
-    },
+    opts: { ...state.opts },
+    style,
     rule: `Rött < ${fmt(state.opts.minBurden, 1)} m, blått > ${fmt(state.opts.maxBurden, 1)} m, från ${fmt(state.opts.startDepth, 1)} m djup`,
     holes,
   };

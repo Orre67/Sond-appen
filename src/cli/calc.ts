@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
 import { toCsv } from "../core/csv";
 import { toDxf } from "../core/dxf";
+import { checkCollars } from "../core/check";
 import { linkHoles } from "../core/project";
 import { renderProfileSvg } from "../view/profile";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions } from "../geom/burden";
@@ -120,7 +121,7 @@ function main() {
   for (const w of mesh.warnings) console.log(`  Varning: ${w}`);
 
   const sp = parseStartPoints(readFileSync(args.points, "utf8"));
-  console.log(`Startpunkter: ${sp.points.length} st, separator ${JSON.stringify(sp.separator)}`);
+  console.log(`Startpunkter: ${sp.points.length} st, separator ${JSON.stringify(sp.separator)}${sp.note ? `, ${sp.note}` : ""}`);
   for (const w of sp.warnings) console.log(`  Varning: ${w}`);
 
   const profiles: SondeProfile[] = [];
@@ -135,6 +136,7 @@ function main() {
   for (const w of link.warnings) console.log(`  Varning: ${w}`);
   if (link.unmatchedPoints.length) console.log(`  Startpunkter utan sondering: ${link.unmatchedPoints.map((p) => p.id).join(", ")}`);
   if (link.unmatchedProfiles.length) console.log(`  Sondering utan startpunkt: ${link.unmatchedProfiles.map((p) => p.id).join(", ")}`);
+  for (const w of checkCollars(surface, link.holes)) console.log(`  Varning: ${w}`);
 
   const opts = { ...DEFAULT_OPTIONS, ...args.opts };
   console.log(`\nInställningar: mått ${opts.interval} m, min ${opts.minBurden} m, max ${opts.maxBurden} m, startdjup ${opts.startDepth} m, metod ${opts.method}, bäringskorrektion ${opts.bearingCorrection}°`);

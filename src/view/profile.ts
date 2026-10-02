@@ -7,6 +7,7 @@ import {
   projectToSection,
   sectionSegments,
   type SectionFrame,
+  type SectionWindow,
 } from "../geom/section";
 import type { Surface } from "../geom/surface";
 import { distance, type Vec3 } from "../geom/vec";
@@ -174,7 +175,8 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
     }
   }
   // s1 är släntsidan där siffrorna står till vänster om ändpunkterna och behöver plats.
-  const pad = st.compact ? { s0: 1.2, s1: 1.9, z0: 1.0, z1: 1.0 } : { s0: 2.5, s1: 2.0, z0: 1.5, z1: 2.0 };
+  // s0 på hålsidan ger plats åt djupsiffrorna, som ritas inom ritområdet.
+  const pad = st.compact ? { s0: 1.6, s1: 1.7, z0: 0.8, z1: 0.8 } : { s0: 2.5, s1: 2.0, z0: 1.5, z1: 2.0 };
   return {
     bearing,
     frame,
@@ -188,7 +190,7 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
 }
 
 function margins(st: ProfileStyle) {
-  return st.compact ? { ml: 10, mr: 62, mt: 26, mb: 12 } : { ml: 24, mr: 112, mt: 64, mb: 30 };
+  return st.compact ? { ml: 6, mr: 6, mt: 8, mb: 8 } : { ml: 24, mr: 112, mt: 64, mb: 30 };
 }
 
 export function profileLayout(r: HoleResult, opts: BurdenOptions, style: Partial<ProfileStyle> = {}): ProfileLayout {
@@ -228,8 +230,8 @@ export function frontLayout(r: HoleResult, opts: BurdenOptions, style: Partial<P
   const E = profileExtents(r, opts, st);
   const ml = st.compact ? 8 : 14;
   const mr = st.compact ? 8 : 14;
-  const mt = st.compact ? 26 : 64;
-  const mb = st.compact ? 12 : 26;
+  const mt = st.compact ? 10 : 64;
+  const mb = st.compact ? 10 : 26;
   const fw = st.width - ml - mr;
   const availH = st.height - mt - mb;
   const k = Math.min(fw / (E.latMax - E.latMin), availH / (E.zMax - E.zMin));
@@ -286,10 +288,34 @@ function footerText(r: HoleResult, opts: BurdenOptions, compact: boolean): strin
  */
 export function renderProfile(r: HoleResult, surface: Surface, opts: BurdenOptions, style: Partial<ProfileStyle> = {}): ProfileRender {
   const st = { ...DEFAULT_PROFILE_STYLE, ...style };
+  const { frame, sMin, sMax, zMin, zMax } = profileLayout(r, opts, st);
+  return drawProfile(r, sectionSegments(surface, frame, { sMin, sMax, zMin, zMax }), opts, st);
+}
+
+/**
+ * Snittfönster med marginal runt det bilden behöver, för ytsegment som skickas till telefonen
+ * och ritas i en skärmform som inte är känd i förväg.
+ */
+export function sectionWindowFor(
+  r: HoleResult,
+  opts: BurdenOptions,
+  style: Partial<ProfileStyle> = {},
+  margin = 3,
+): SectionWindow & { frame: SectionFrame } {
+  const E = profileExtents(r, opts, style);
+  return { frame: E.frame, sMin: E.sMin - margin, sMax: E.sMax + margin, zMin: E.zMin - margin, zMax: E.zMax + margin };
+}
+
+/**
+ * Ritar snittet ur färdiga ytsegment ([s0, z0, s1, z1, ...] i snittkoordinater) utan tillgång
+ * till modellen. Telefonen använder den för att rita i skärmens egen storlek.
+ */
+export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: BurdenOptions, style: Partial<ProfileStyle> = {}): ProfileRender {
+  const st = { ...DEFAULT_PROFILE_STYLE, ...style };
   const W = st.width;
   const H = st.height;
   const L = profileLayout(r, opts, st);
-  const { frame, bearing, sMin, sMax, zMin, zMax, k, ml, mt, plotW, plotH, padX, padY } = L;
+  const { frame, bearing, sMax, zMax, k, ml, mt, plotW, plotH, padX, padY } = L;
 
   const drawn = r.rows.filter((x) => x.cls !== "collar");
   const hp = r.path.points.map((p) => projectToSection(frame, p));
@@ -303,7 +329,6 @@ export function renderProfile(r: HoleResult, surface: Surface, opts: BurdenOptio
       truncated: le ? le.truncated : false,
     };
   });
-  const segs = sectionSegments(surface, frame, { sMin, sMax, zMin, zMax });
 
   // Slänten till vänster: s växer åt vänster på skärmen
   const X = (s: number) => ml + padX + (sMax - s) * k;
@@ -338,10 +363,8 @@ export function renderProfile(r: HoleResult, surface: Surface, opts: BurdenOptio
   parts.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
   parts.push(`<defs><clipPath id="${clipId}"><rect x="${ml}" y="${mt}" width="${plotW}" height="${plotH}"/></clipPath></defs>`);
 
-  // Rubrik. På telefon visar sidan själv hålets nummer och värden, så bilden får bara en liten rad.
-  if (st.compact) {
-    parts.push(`<text x="${ml}" y="17" font-size="12" fill="#666">Snitt · bäring ${fmt(bearing, 0)}° · ${opts.mode === "stick" ? `sticka ${fmt(opts.interval, 1)} m` : `punkt var ${fmt(opts.interval, 1)} m`}</text>`);
-  } else {
+  // Rubrik. På telefon visar sidan själv hålets nummer och värden, så bilden har ingen.
+  if (!st.compact) {
     parts.push(`<text x="${ml}" y="26" font-size="20" font-weight="700" fill="#111">Hål ${escapeXml(r.id)}</text>`);
     headerLines(r, opts, bearing, false).forEach((line, i) => {
       parts.push(`<text x="${ml}" y="${46 + i * 17}" font-size="12.5" fill="#444">${escapeXml(line)}</text>`);
@@ -528,9 +551,7 @@ export function renderFrontSvg(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Segoe UI, Arial, sans-serif" data-hole="${escapeXml(r.id)}" data-view="front">`,
   );
   parts.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
-  if (st.compact) {
-    parts.push(`<text x="${L.fx0}" y="17" font-size="12" fill="#666">Framifrån · bäring ${fmt(L.bearing, 0)}° · höjd i meter, sidledes från hålet</text>`);
-  } else {
+  if (!st.compact) {
     parts.push(`<text x="${L.fx0}" y="26" font-size="20" font-weight="700" fill="#111">Hål ${escapeXml(r.id)}  ·  framifrån</text>`);
     headerLines(r, opts, L.bearing, false).forEach((line, i) => {
       parts.push(`<text x="${L.fx0}" y="${46 + i * 17}" font-size="12.5" fill="#444">${escapeXml(line)}</text>`);

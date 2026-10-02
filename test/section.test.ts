@@ -3,8 +3,9 @@ import { computeHole, DEFAULT_OPTIONS } from "../src/geom/burden";
 import { holeMeanBearing, holeMeanInclination, makeFrame, projectToSection, sectionSegments } from "../src/geom/section";
 import { Surface } from "../src/geom/surface";
 import type { MeshData } from "../src/io/mesh";
+import { checkCollars } from "../src/core/check";
 import { renderPlanSvg } from "../src/view/plan";
-import { frontLayout, hoverMarkup, renderFrontSvg, renderProfile, renderProfileSvg } from "../src/view/profile";
+import { drawProfile, frontLayout, hoverMarkup, renderFrontSvg, renderProfile, renderProfileSvg, sectionWindowFor } from "../src/view/profile";
 
 const SIN14 = Math.sin((14 * Math.PI) / 180);
 
@@ -25,6 +26,22 @@ const floor: [number, number, number][] = [[2, -50, -20], [2, 50, -20], [60, 50,
 
 describe("snitt", () => {
   const surface = Surface.fromMesh(quads(top, wall, floor));
+
+  it("varnar när påhuggen inte ligger på ytan", () => {
+    const st = [{ depth: 0, bearing: 90, inclination: 0 }, { depth: 5, bearing: 90, inclination: 0 }];
+    expect(checkCollars(surface, [{ id: "1", collar: [0, 0, 0.2], stations: st }])).toEqual([]);
+    const one = checkCollars(surface, [
+      { id: "1", collar: [0, 0, 0], stations: st },
+      { id: "2", collar: [0, 0, 3], stations: st },
+    ]);
+    expect(one).toEqual(["Hål 2: påhugget ligger 3,0 m från ytmodellen."]);
+    const lost = checkCollars(surface, [
+      { id: "1", collar: [0, 0, 50], stations: st },
+      { id: "2", collar: [0, 10, 50], stations: st },
+    ]);
+    expect(lost).toHaveLength(3);
+    expect(lost[0]).toContain("2 av 2 påhugg ligger mer än 10 m från ytmodellen");
+  });
 
   it("projektion i snittet", () => {
     const f = makeFrame([0, 0, 0], 90);
@@ -100,8 +117,17 @@ describe("snitt", () => {
     const mobile = renderProfile(rs, surface, stickOpts, { width: 420, height: 700, compact: true, showFront: false });
     expect(mobile.svg).toContain('width="420" height="700"');
     expect(mobile.svg).not.toContain("Framifrån");
-    expect(mobile.svg).toContain("sticka 1,0 m");
+    expect(mobile.svg).not.toContain("Hål 20");
     expect(mobile.svg).not.toContain("Påhugg +");
+
+    // Telefonen ritar ur färdiga ytsegment utan modellen och får samma bild
+    const win = sectionWindowFor(rs, stickOpts, { compact: true, showFront: false }, 0);
+    const phone = drawProfile(rs, Array.from(sectionSegments(surface, win.frame, win)), stickOpts, { width: 420, height: 700, compact: true, showFront: false });
+    expect(phone.svg).toBe(mobile.svg);
+    expect(phone.samples).toEqual(mobile.samples);
+    const wide = drawProfile(rs, Array.from(sectionSegments(surface, win.frame, win)), stickOpts, { width: 900, height: 500, compact: true, showFront: false });
+    expect(wide.svg).toContain('width="900" height="500"');
+    expect(wide.samples).toHaveLength(61);
     const FL = frontLayout(rs, stickOpts, { width: 420, height: 700, compact: true });
     expect(FL.fw).toBe(420 - 16);
     expect(FL.latMax - FL.latMin).toBeCloseTo(FL.fw / FL.k, 6);

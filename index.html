@@ -87,7 +87,22 @@
           </div>
         </section>
         <section id="tab-scene" class="tab"><div id="scene-container"></div></section>
-        <section id="tab-plan" class="tab"><div id="plan-container"><p class="empty">Översikten visas när en yta och hål finns.</p></div></section>
+        <section id="tab-plan" class="tab">
+          <div class="toolbar">
+            <button id="plan-fit" class="secondary" title="Visa hela ytan. Scrollhjulet zoomar kring pekaren, dra för att flytta, dubbelklick visar hela ytan.">Hela ytan</button>
+            <span class="sep"></span>
+            <label class="field">Skjutriktning <input id="blast-bearing" type="number" min="0" max="359" step="1" placeholder="–" /> °</label>
+            <button id="blast-draw" class="secondary" title="Dra en linje längs raden från höger till vänster. Skjutriktningen blir vinkelrät mot linjen och kartan vrids så att den pekar uppåt.">Rita riktning</button>
+            <span class="sep"></span>
+            <button id="num-start" class="secondary" title="Klicka på hålen i tur och ordning så får de nummer från startvärdet. Upptagna nummer hoppas över.">Numrera om</button>
+            <label class="field">från <input id="num-from" type="number" value="1" min="0" step="1" /></label>
+            <button id="num-rest" class="secondary" title="Ger punkter utan nummer nästa lediga nummer, i filens ordning" disabled>Numrera onumrerade</button>
+            <button id="num-clear" class="secondary" title="Tar bort alla nummer och startar numreringen från startvärdet">Nollställ numrering</button>
+            <button id="num-reset" class="secondary" title="Återgår till numren i startpunktsfilen" disabled>Originalnummer</button>
+            <span id="plan-hint" class="hint toolbar-hint"></span>
+          </div>
+          <div id="plan-container"><p class="empty">Översikten visas när en yta och startpunkter finns.</p></div>
+        </section>
         <section id="tab-table" class="tab"><div id="table-container"></div></section>
       </main>
     </div>
