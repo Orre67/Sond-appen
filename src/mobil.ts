@@ -85,10 +85,15 @@ function renderPlan(): void {
   $("title").textContent = salva?.site ?? bundle.name;
   const parts = [salva ? formatDate(salva.date) : null, `${bundle.holes.length} hål`, plan.bearing !== null ? `skjutriktning ${plan.bearing}°` : null];
   $("subtitle").textContent = parts.filter((p): p is string => !!p).join(" · ");
-  $("info").textContent = salva?.note || "Tryck på ett hål. Dra för att flytta, nyp för att zooma.";
+  const hint = "Tryck på ett hål för dess profil. Dra för att flytta, nyp för att zooma.";
+  $("info").textContent = salva?.note ? `${salva.note} · ${hint}` : hint;
   const back = $<HTMLAnchorElement>("back");
   back.textContent = "‹ Inmätningar";
   back.href = "/m";
+  // Knappen nere till höger leder vidare till profilerna även utan att träffa en markör
+  const toggle = $<HTMLButtonElement>("toggle");
+  toggle.textContent = "Profiler ›";
+  toggle.disabled = false;
   drawPlan();
   const url = new URL(location.href);
   url.searchParams.delete("h");
@@ -110,10 +115,17 @@ function drawPlan(): void {
     plan.bounds,
     plan.image ? { dataUrl: plan.image } : null,
     lastHole,
-    { bearing: plan.bearing, points: plan.points, sourceIds: new Map(plan.sourceIds), extent: plan.extent, pixelScale },
+    { bearing: plan.bearing, points: plan.points, sourceIds: new Map(plan.sourceIds), extent: plan.extent, pixelScale, viewport: current },
   );
   const svg = view.querySelector("svg");
   if (!svg) return;
+  // Klick på en markör som reserv om pekhändelserna inte ger något tryck (vissa webbläsare)
+  for (const g of svg.querySelectorAll<SVGGElement>("g.plan-hole")) {
+    g.addEventListener("click", () => {
+      const i = bundle?.holes.findIndex((x) => x.id === g.dataset.id) ?? -1;
+      if (i >= 0 && mode === "plan") openHole(i);
+    });
+  }
   attachPanZoom(svg, {
     fit,
     initial: planView,
@@ -135,7 +147,7 @@ function tapHole(svg: SVGSVGElement, [cx, cy]: [number, number]): void {
     if (!c) continue;
     const r = c.getBoundingClientRect();
     const d = Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
-    if (d <= 28 && (!best || d < best.d)) best = { id: g.dataset.id ?? "", d };
+    if (d <= 36 && (!best || d < best.d)) best = { id: g.dataset.id ?? "", d };
   }
   if (!best) return;
   const i = bundle.holes.findIndex((h) => h.id === best.id);
@@ -157,7 +169,10 @@ function step(delta: number): void {
 }
 
 function toggleMode(): void {
-  if (mode === "plan") return;
+  if (mode === "plan") {
+    openHole(index);
+    return;
+  }
   mode = mode === "section" ? "front" : "section";
   render();
 }

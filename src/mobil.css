@@ -269,16 +269,7 @@ main {
   text-decoration: none;
 }
 
-/* Översikten på telefonen: hela rutan, dra och nyp hanteras av sidan */
-#app.plan header button,
-#app.plan #toggle {
-  display: none;
-}
-
-#app.plan header {
-  grid-template-columns: 1fr;
-}
-
+/* Översikten på telefonen: hela rutan, dra och nyp hanteras av sidan. Pilarna leder in i profilerna. */
 #app.plan #view {
   background: #f1f1ee;
 }
