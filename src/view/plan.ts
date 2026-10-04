@@ -254,7 +254,7 @@ export function renderPlanSvg(
   }
 
   // Skalstock: alltid 10 m lång, så den visar skalan även när bilden zoomas. På telefonen till höger, bort från knappen.
-  parts.push(`<g transform="translate(${f(S ? V.x + V.w - 2 * 8 * u - 10 : V.x + 2 * 8 * u)},${f(V.y + V.h - 2 * 8 * u)})">`);
+  parts.push(`<g transform="translate(${f(S ? V.x + V.w - 2 * 8 * u - 10 : V.x + 2 * 8 * u)},${f(V.y + V.h - (S ? 11 : 2) * 8 * u)})">`);
   parts.push(`<line x1="0" y1="0" x2="10" y2="0" stroke="#222" stroke-width="${d(0.3)}"/>`);
   parts.push(`<line x1="0" y1="${d(-0.5)}" x2="0" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
   parts.push(`<line x1="10" y1="${d(-0.5)}" x2="10" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
