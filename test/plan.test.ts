@@ -67,5 +67,11 @@ describe("översikt", () => {
     expect(svg).toContain("Skjutriktning 45°");
     expect(svg).toContain('data-bearing="45"');
     expect(svg).toContain('id="plan-overlay"');
+    expect(svg).toContain('class="collar"');
+    // Skrivbordet ritar i meter, telefonen i skärmpixlar gånger meter per pixel
+    expect(svg).toContain('font-size="1.00"');
+    const phone = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: [{ id: "7", sourceId: "7", e: 120, n: 210 }], pixelScale: 0.2 });
+    expect(phone).toContain('font-size="2.40"');
+    expect(phone).toContain('r="1.00"');
   });
 });

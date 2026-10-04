@@ -268,3 +268,22 @@ main {
   padding: 9px 14px;
   text-decoration: none;
 }
+
+/* Översikten på telefonen: hela rutan, dra och nyp hanteras av sidan */
+#app.plan header button,
+#app.plan #toggle {
+  display: none;
+}
+
+#app.plan header {
+  grid-template-columns: 1fr;
+}
+
+#app.plan #view {
+  background: #f1f1ee;
+}
+
+#app.plan #view svg {
+  max-height: none !important;
+  touch-action: none;
+}

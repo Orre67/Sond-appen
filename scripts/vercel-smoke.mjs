@@ -95,11 +95,25 @@ await phone.click(".card");
 // Vyn uppdaterar adressen med replaceState, så vänta på innehållet i stället för på ett sidbyte
 await phone.waitForFunction(() => location.pathname.startsWith("/m/") && !!document.querySelector("#view svg"), { timeout: 120000 });
 await wait(800);
-console.log(`Vyn: ${await phone.$eval("#title", (e) => e.textContent)} efter ${Date.now() - t1} ms, bakåtlänk ${await phone.$eval("#back", (e) => e.getAttribute("href"))}`);
-await phone.screenshot({ path: "out/vercel-3-mobil.png" });
+const planFirst = await phone.$eval("#app", (e) => e.classList.contains("plan"));
+console.log(`Öppnade: ${await phone.$eval("#title", (e) => e.textContent)} · ${await phone.$eval("#subtitle", (e) => e.textContent)} efter ${Date.now() - t1} ms, översikt först: ${planFirst}`);
+await phone.screenshot({ path: "out/vercel-3-oversikt.png" });
+if (planFirst) {
+  // Tryck på det första hålets påhugg i översikten
+  const marker = await phone.$("g.plan-hole circle.collar");
+  const r = await marker.boundingBox();
+  await phone.touchscreen.tap(r.x + r.width / 2, r.y + r.height / 2);
+  await phone.waitForSelector("#view svg[data-hole]", { timeout: 30000 });
+  await wait(500);
+  console.log(`Tryck på hål: ${await phone.$eval("#title", (e) => e.textContent)}, bakåt: ${await phone.$eval("#back", (e) => e.textContent)}`);
+}
+await phone.screenshot({ path: "out/vercel-4-hal.png" });
 await phone.click("#toggle");
 await wait(800);
-await phone.screenshot({ path: "out/vercel-4-framifran.png" });
+await phone.screenshot({ path: "out/vercel-5-framifran.png" });
+await phone.click("#back");
+await wait(600);
+console.log(`Tillbaka till översikten: ${await phone.$eval("#app", (e) => e.classList.contains("plan"))}`);
 
 // Utloggad telefon (egen kakburk) får inte listan
 const strangerContext = await browser.createBrowserContext();

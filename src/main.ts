@@ -14,7 +14,7 @@ import { parseStartPoints, type StartPoint } from "./io/startpoints";
 import { CLASS_COLORS, fmt, holeClass } from "./view/format";
 import { blastBearingFromLine, planFrame, renderPlanSvg, rotatedExtent, type PlanFrame, type PlanPoint } from "./view/plan";
 import QRCode from "qrcode";
-import { publishEntry, unpublishEntry, uploadShare, type ShareBundle } from "./core/share";
+import { publishEntry, unpublishEntry, uploadShare, type ShareBundle, type SharePlan } from "./core/share";
 import { suggestSalva } from "./core/catalog";
 import { attachHover } from "./view/hover";
 import { sectionSegments } from "./geom/section";
@@ -816,7 +816,7 @@ async function shareToMobile(): Promise<void> {
   btn.disabled = true;
   btn.textContent = "Ritar profiler …";
   try {
-    const bundle = buildShareBundle();
+    const bundle = buildShareBundle(info);
     btn.textContent = "Skickar …";
     const res = await uploadShare(bundle, shareKey);
     btn.textContent = "Publicerar …";
@@ -853,7 +853,30 @@ async function unpublish(): Promise<void> {
   }
 }
 
-function buildShareBundle(): ShareBundle {
+/** Översikten till telefonen: ortofoto i lagom upplösning, i skrivbordets orientering, plus punkter utan hål. */
+function buildSharePlan(): SharePlan | null {
+  if (!state.surface) return null;
+  const bounds = state.surface.bounds;
+  const w = bounds.max[0] - bounds.min[0];
+  const h = bounds.max[1] - bounds.min[1];
+  const px = Math.max(200, Math.round(h > w ? (1600 * w) / h : 1600));
+  let image: string | null = null;
+  try {
+    image = scene.renderTopDown(bounds, px);
+  } catch (err) {
+    console.warn("Inget ortofoto till översikten", err);
+  }
+  return {
+    bounds,
+    bearing: state.blastBearing,
+    extent: state.mesh ? rotatedExtent(state.mesh.positions, bounds, state.blastBearing, 4) : null,
+    image,
+    points: pointsWithoutHole().map((p) => ({ id: p.id, sourceId: p.sourceId, e: p.e, n: p.n })),
+    sourceIds: [...state.sourceIds],
+  };
+}
+
+function buildShareBundle(salva: { site: string; date: string; note: string }): ShareBundle {
   const surface = state.surface!;
   const style = {
     showSkipped: state.showSkipped,
@@ -886,11 +909,13 @@ function buildShareBundle(): ShareBundle {
     };
   });
   return {
-    version: 2,
+    version: 3,
     name: state.meshName.replace(/\.[^.]+$/, "") || "salva",
     created: new Date().toISOString(),
     opts: { ...state.opts },
     style,
+    salva,
+    plan: buildSharePlan(),
     rule: `Rött < ${fmt(state.opts.minBurden, 1)} m, blått > ${fmt(state.opts.maxBurden, 1)} m, från ${fmt(state.opts.startDepth, 1)} m djup`,
     holes,
   };

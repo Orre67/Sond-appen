@@ -1,6 +1,22 @@
 import type { BurdenClass, BurdenOptions, HoleResult } from "../geom/burden";
+import type { Bounds } from "../io/mesh";
+import type { PlanPoint, RotatedExtent } from "../view/plan";
 import type { ProfileStyle } from "../view/profile";
 import type { CatalogEntry } from "./catalog";
+
+/** Översikten uppifrån, i den orientering skrivbordet hade vid publiceringen. */
+export interface SharePlan {
+  bounds: Bounds;
+  /** Skjutriktning, null = norr uppåt. */
+  bearing: number | null;
+  extent: RotatedExtent | null;
+  /** Ortofoto (data-URL) som täcker bounds, norr uppåt, genomskinligt utanför modellen. */
+  image: string | null;
+  /** Startpunkter utan beräknat hål. */
+  points: PlanPoint[];
+  /** Hål-id -> id i filen för omnumrerade hål. */
+  sourceIds: [string, string][];
+}
 
 /**
  * Ett delningspaket: hålens beräknade resultat och ytans snitt längs varje hål, så att telefonen
@@ -8,7 +24,7 @@ import type { CatalogEntry } from "./catalog";
  * med färdigritad eftersom den kräver 3D-modellen.
  */
 export interface ShareBundle {
-  version: 2;
+  version: 2 | 3;
   name: string;
   created: string;
   opts: BurdenOptions;
@@ -16,6 +32,10 @@ export interface ShareBundle {
   style: Pick<ProfileStyle, "showSkipped" | "showTrace" | "showSticks" | "mergeLabelsWithin">;
   /** Färgregeln i klartext, t.ex. "Rött < 1,5 m, blått > 3,5 m, från 1,0 m djup". */
   rule: string;
+  /** Plats, datum och anteckning från publiceringsrutan (version 3). */
+  salva?: { site: string; date: string; note: string };
+  /** Översikten, visas först på telefonen (version 3). */
+  plan?: SharePlan | null;
   holes: ShareHole[];
 }
 
@@ -101,6 +121,6 @@ export async function fetchShare(id: string): Promise<ShareBundle> {
   if (!res.ok) throw new Error(res.status === 404 ? "Paketet finns inte längre." : `Kunde inte hämta paketet: ${res.status}`);
   const data = (await res.json()) as Partial<ShareBundle>;
   if (!Array.isArray(data.holes)) throw new Error("Svaret från servern var inget profilpaket.");
-  if (data.version !== 2) throw new Error("Paketet kommer från en äldre version av appen. Dela profilerna igen från datorn.");
+  if (data.version !== 2 && data.version !== 3) throw new Error("Paketet kommer från en äldre version av appen. Publicera igen från datorn.");
   return data as ShareBundle;
 }

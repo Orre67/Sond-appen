@@ -25,6 +25,11 @@ export interface PlanExtras {
   numbering: boolean;
   /** Modellens utbredning i den vridna ramen, så att kartan följer modellen och inte dess rektangel i E N. */
   extent: RotatedExtent | null;
+  /**
+   * Meter per skärmpixel. Anges den ritas siffror, markörer och linjer i skärmstorlek
+   * (telefonen, som zoomar genom att ändra viewBox), annars i fasta meter som på skrivbordet.
+   */
+  pixelScale: number | null;
 }
 
 /** Utbredning i den vridna ramen, i meter kring modellens centrum. */
@@ -125,7 +130,7 @@ export function blastBearingFromLine(e0: number, n0: number, e1: number, n1: num
 const INK = "#141414";
 const MUTED = "#8a8a8a";
 const DIRECTION_COLOR = "#e08a1e";
-const DEFAULT_EXTRAS: PlanExtras = { bearing: null, points: [], sourceIds: new Map(), numbering: false, extent: null };
+const DEFAULT_EXTRAS: PlanExtras = { bearing: null, points: [], sourceIds: new Map(), numbering: false, extent: null, pixelScale: null };
 
 /**
  * Översikt av hela salvan uppifrån: ortofotot, hålens spår och nummer, inget mer. Inga mått och
@@ -168,13 +173,20 @@ export function renderPlanSvg(
   }
   parts.push(`</g>`);
 
+  // Mått: på skrivbordet fasta meter, på telefonen skärmpixlar gånger meter per pixel
+  const S = ex.pixelScale;
+  const sz = (pixels: number, meters: number) => (S ? pixels * S : meters);
+  const R = sz(5, 0.55);
+  const traceW = sz(1.5, 0.14);
+  const fontL = sz(12, 1.0);
+  const fontS = sz(10, 0.75);
   const target = (x: number, y: number) =>
-    ex.numbering ? `<circle cx="${f(x)}" cy="${f(y)}" r="1.0" fill="none" stroke="${MUTED}" stroke-width="0.12" stroke-dasharray="0.3 0.2"/>` : "";
+    ex.numbering ? `<circle cx="${f(x)}" cy="${f(y)}" r="${f(sz(9, 1.0))}" fill="none" stroke="${MUTED}" stroke-width="${f(sz(1, 0.12))}" stroke-dasharray="${f(sz(3, 0.3))} ${f(sz(2, 0.2))}"/>` : "";
   // Numret står ovanför påhugget, centrerat och litet, så att en tät rad inte flyter ihop
   const label = (x: number, y: number, text: string) =>
-    `<text x="${f(x)}" y="${f(y - 0.9)}" font-size="1.0" font-weight="700" text-anchor="middle" fill="${INK}" stroke="#fff" stroke-width="0.22" paint-order="stroke">${escapeXml(text)}</text>`;
+    `<text x="${f(x)}" y="${f(y - sz(8, 0.9))}" font-size="${f(fontL)}" font-weight="700" text-anchor="middle" fill="${INK}" stroke="#fff" stroke-width="${f(sz(2.5, 0.22))}" paint-order="stroke">${escapeXml(text)}</text>`;
   const sourceLabel = (x: number, y: number, text: string) =>
-    `<text x="${f(x)}" y="${f(y + 1.6)}" font-size="0.75" text-anchor="middle" fill="#666" stroke="#fff" stroke-width="0.18" paint-order="stroke">(${escapeXml(text)})</text>`;
+    `<text x="${f(x)}" y="${f(y + sz(15, 1.6))}" font-size="${f(fontS)}" text-anchor="middle" fill="#666" stroke="#fff" stroke-width="${f(sz(2, 0.18))}" paint-order="stroke">(${escapeXml(text)})</text>`;
 
   for (const r of results) {
     const sel = r.id === selectedId;
@@ -187,10 +199,10 @@ export function renderPlanSvg(
         return `${f(q.x)},${f(q.y)}`;
       })
       .join(" ");
-    parts.push(`<polyline points="${trace}" fill="none" stroke="${INK}" stroke-width="0.14"/>`);
-    if (sel) parts.push(`<circle cx="${f(k.x)}" cy="${f(k.y)}" r="1.1" fill="none" stroke="${INK}" stroke-width="0.2"/>`);
+    parts.push(`<polyline points="${trace}" fill="none" stroke="${INK}" stroke-width="${f(traceW)}"/>`);
+    if (sel) parts.push(`<circle cx="${f(k.x)}" cy="${f(k.y)}" r="${f(sz(10, 1.1))}" fill="none" stroke="${INK}" stroke-width="${f(sz(1.5, 0.2))}"/>`);
     parts.push(target(k.x, k.y));
-    parts.push(`<circle cx="${f(k.x)}" cy="${f(k.y)}" r="0.55" fill="${INK}" stroke="#fff" stroke-width="0.12"/>`);
+    parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${INK}" stroke="#fff" stroke-width="${f(sz(1.2, 0.12))}"/>`);
     parts.push(label(k.x, k.y, r.id));
     if (source !== undefined) parts.push(sourceLabel(k.x, k.y, source));
     parts.push(`</g>`);
@@ -202,42 +214,47 @@ export function renderPlanSvg(
     parts.push(`<g class="plan-point" data-source="${escapeXml(p.sourceId)}" style="cursor:pointer">`);
     parts.push(target(k.x, k.y));
     if (p.id !== null) {
-      parts.push(`<circle cx="${f(k.x)}" cy="${f(k.y)}" r="0.55" fill="${MUTED}" stroke="#fff" stroke-width="0.12"/>`);
+      parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${MUTED}" stroke="#fff" stroke-width="${f(sz(1.2, 0.12))}"/>`);
       parts.push(label(k.x, k.y, p.id));
       if (p.id !== p.sourceId) parts.push(sourceLabel(k.x, k.y, p.sourceId));
     } else {
-      parts.push(`<circle cx="${f(k.x)}" cy="${f(k.y)}" r="0.55" fill="#fff" stroke="${INK}" stroke-width="0.18"/>`);
+      parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#fff" stroke="${INK}" stroke-width="${f(sz(1.8, 0.18))}"/>`);
       parts.push(
-        `<text x="${f(k.x)}" y="${f(k.y - 0.9)}" font-size="0.85" text-anchor="middle" fill="#777" stroke="#fff" stroke-width="0.2" paint-order="stroke">(${escapeXml(p.sourceId)})</text>`,
+        `<text x="${f(k.x)}" y="${f(k.y - sz(8, 0.9))}" font-size="${f(sz(11, 0.85))}" text-anchor="middle" fill="#777" stroke="#fff" stroke-width="${f(sz(2, 0.2))}" paint-order="stroke">(${escapeXml(p.sourceId)})</text>`,
       );
     }
     parts.push(`</g>`);
   }
 
-  // Norrpil, vriden med kartan, med bokstaven upprätt
-  parts.push(`<g transform="translate(${f(w - 3)},${f(3.2)}) rotate(${f(-B)})">`);
-  parts.push(`<line x1="0" y1="2.2" x2="0" y2="-1.6" stroke="#222" stroke-width="0.25"/>`);
-  parts.push(`<polygon points="0,-2.4 -0.7,-0.9 0.7,-0.9" fill="#222"/>`);
-  parts.push(`<text x="0" y="-2.9" transform="rotate(${f(B)} 0 -2.9)" font-size="1.4" font-weight="700" text-anchor="middle" fill="#222">N</text>`);
+  // Dekorationerna skalas som pilar och text: en enhet u är en meter på skrivbordet och en pixel på telefonen
+  const u = S ? S : 1;
+  const d = (meters: number) => f(S ? meters * 8 * S : meters);
+
+  // Norrpil, vriden med kartan, med bokstaven upprätt. På telefonen längre från kanten så att den inte klipps.
+  const top = S ? 5 : 3.2;
+  parts.push(`<g transform="translate(${f(w - 3 * 8 * u)},${f(top * 8 * u)}) rotate(${f(-B)})">`);
+  parts.push(`<line x1="0" y1="${d(2.2)}" x2="0" y2="${d(-1.6)}" stroke="#222" stroke-width="${d(0.25)}"/>`);
+  parts.push(`<polygon points="0,${d(-2.4)} ${d(-0.7)},${d(-0.9)} ${d(0.7)},${d(-0.9)}" fill="#222"/>`);
+  parts.push(`<text x="0" y="${d(-2.9)}" transform="rotate(${f(B)} 0 ${d(-2.9)})" font-size="${d(1.4)}" font-weight="700" text-anchor="middle" fill="#222">N</text>`);
   parts.push(`</g>`);
 
   // Skjutriktning: pil uppåt mitt på överkanten
   if (ex.bearing !== null) {
-    parts.push(`<g transform="translate(${f(w / 2)},3.4)">`);
-    parts.push(`<line x1="0" y1="2.4" x2="0" y2="-1.4" stroke="${DIRECTION_COLOR}" stroke-width="0.35"/>`);
-    parts.push(`<polygon points="0,-2.6 -0.9,-0.8 0.9,-0.8" fill="${DIRECTION_COLOR}"/>`);
+    parts.push(`<g transform="translate(${f(w / 2)},${f((top + 0.2) * 8 * u)})">`);
+    parts.push(`<line x1="0" y1="${d(2.4)}" x2="0" y2="${d(-1.4)}" stroke="${DIRECTION_COLOR}" stroke-width="${d(0.35)}"/>`);
+    parts.push(`<polygon points="0,${d(-2.6)} ${d(-0.9)},${d(-0.8)} ${d(0.9)},${d(-0.8)}" fill="${DIRECTION_COLOR}"/>`);
     parts.push(
-      `<text x="1.4" y="0.5" font-size="1.4" font-weight="700" fill="${DIRECTION_COLOR}" stroke="#fff" stroke-width="0.3" paint-order="stroke">Skjutriktning ${fmt(ex.bearing, 0)}°</text>`,
+      `<text x="${d(1.4)}" y="${d(0.5)}" font-size="${d(1.4)}" font-weight="700" fill="${DIRECTION_COLOR}" stroke="#fff" stroke-width="${d(0.3)}" paint-order="stroke">Skjutriktning ${fmt(ex.bearing, 0)}°</text>`,
     );
     parts.push(`</g>`);
   }
 
-  // Skalstock
-  parts.push(`<g transform="translate(2,${f(h - 2)})">`);
-  parts.push(`<line x1="0" y1="0" x2="10" y2="0" stroke="#222" stroke-width="0.3"/>`);
-  parts.push(`<line x1="0" y1="-0.5" x2="0" y2="0.5" stroke="#222" stroke-width="0.2"/>`);
-  parts.push(`<line x1="10" y1="-0.5" x2="10" y2="0.5" stroke="#222" stroke-width="0.2"/>`);
-  parts.push(`<text x="5" y="-0.8" font-size="1.2" text-anchor="middle" fill="#222">10 m</text>`);
+  // Skalstock: alltid 10 m lång, så den visar skalan även när bilden zoomas. På telefonen till höger, bort från knappen.
+  parts.push(`<g transform="translate(${f(S ? w - 2 * 8 * u - 10 : 2 * 8 * u)},${f(h - 2 * 8 * u)})">`);
+  parts.push(`<line x1="0" y1="0" x2="10" y2="0" stroke="#222" stroke-width="${d(0.3)}"/>`);
+  parts.push(`<line x1="0" y1="${d(-0.5)}" x2="0" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
+  parts.push(`<line x1="10" y1="${d(-0.5)}" x2="10" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
+  parts.push(`<text x="5" y="${d(-0.8)}" font-size="${d(1.2)}" text-anchor="middle" fill="#222">10 m</text>`);
   parts.push(`</g>`);
 
   // Lager för linjen som dras när skjutriktningen ritas
