@@ -91,7 +91,9 @@ Vercel Blob, publik lagring i region Stockholm:
 - `api/m/login.ts` loggar in telefonen med åtkomstkoden (`ACCESS_CODE`) och sätter en signerad
   kaka. `api/m/catalog.ts` lämnar ut registret över publicerade inmätningar till inloggade.
   `api/m/publish.ts` tar emot skrivbordets publicering och avpublicering (kräver `SHARE_KEY`).
-  Registret är en JSON-fil i samma Blob-lagring under en hemlig sökväg (`REGISTER_SECRET`).
+  Registret ligger i samma Blob-lagring under en hemlig sökväg (`REGISTER_SECRET`), som
+  versionerade JSON-filer: varje skrivning blir en ny fil och den senaste hittas med `list()`,
+  eftersom överskrivning av samma fil gav gamla läsningar i flera sekunder.
 - `api/cron/cleanup.ts` körs varje natt och tar bort paket äldre än 30 dagar (`CRON_SECRET`),
   och plockar bort dem ur registret.
 

@@ -1,5 +1,5 @@
 import { del, list } from "@vercel/blob";
-import { readRegister, writeRegister } from "../../src/server/blob.js";
+import { pruneRegisterVersions, readRegister, writeRegister } from "../../src/server/blob.js";
 
 const KEEP_DAYS = 30;
 
@@ -31,5 +31,6 @@ export async function GET(request: Request): Promise<Response> {
     pruned = catalog.entries.length - entries.length;
     if (pruned > 0) await writeRegister({ version: 1, entries });
   }
-  return Response.json({ deleted: old.length, pruned, keepDays: KEEP_DAYS });
+  const prunedVersions = await pruneRegisterVersions();
+  return Response.json({ deleted: old.length, pruned, prunedVersions, keepDays: KEEP_DAYS });
 }
