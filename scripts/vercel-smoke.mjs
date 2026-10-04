@@ -91,8 +91,9 @@ const cards = await phone.$$eval(".card", (els) => els.map((e) => e.textContent.
 console.log(`Kort: ${cards.length} st. Första: ${cards[0] ?? "inget"}`);
 await phone.screenshot({ path: "out/vercel-2-lista.png" });
 const t1 = Date.now();
-await Promise.all([phone.waitForNavigation({ waitUntil: "load" }), phone.click(".card")]);
-await phone.waitForSelector("#view svg", { timeout: 120000 });
+await phone.click(".card");
+// Vyn uppdaterar adressen med replaceState, så vänta på innehållet i stället för på ett sidbyte
+await phone.waitForFunction(() => location.pathname.startsWith("/m/") && !!document.querySelector("#view svg"), { timeout: 120000 });
 await wait(800);
 console.log(`Vyn: ${await phone.$eval("#title", (e) => e.textContent)} efter ${Date.now() - t1} ms, bakåtlänk ${await phone.$eval("#back", (e) => e.getAttribute("href"))}`);
 await phone.screenshot({ path: "out/vercel-3-mobil.png" });
