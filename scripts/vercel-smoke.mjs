@@ -77,7 +77,10 @@ const phone = await browser.newPage();
 await phone.setViewport({ width: 390, height: 614, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 watch(phone, "telefon", errs);
 await phone.goto(`${base}/m`, { waitUntil: "load" });
-await phone.waitForSelector("#login-form, .card, #view .empty", { timeout: 60000 });
+await phone.waitForFunction(
+  () => document.querySelector("#login-form, .card") || (document.querySelector("#view .empty") && !/Hämtar/.test(document.querySelector("#view .empty").textContent)),
+  { timeout: 60000 },
+);
 if (await phone.$("#login-form")) {
   console.log("Listan kräver inloggning");
   await phone.type("#login-code", accessCode);

@@ -98,7 +98,7 @@ async function initList(): Promise<void> {
 }
 
 async function loadCatalog(): Promise<void> {
-  $("view").innerHTML = `<p class="empty">Hämtar …</p>`;
+  $("view").innerHTML = `<p class="empty loading">Hämtar …</p>`;
   let res: Response;
   try {
     res = await fetch("/api/m/catalog", { cache: "no-store" });
