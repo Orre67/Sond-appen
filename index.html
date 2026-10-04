@@ -52,15 +52,29 @@
           </div>
         </section>
         <section class="panel">
-          <h2>Dela till mobil</h2>
-          <button id="btn-share" disabled>Dela profilerna</button>
-          <div class="hint">Ritar alla profiler i stående format och skickar dem till servern. Telefoner på samma nätverk öppnar länken eller QR-koden. Där går det bara att titta, inte ändra.</div>
+          <h2>Publicera till telefonerna</h2>
+          <button id="btn-share" disabled>Publicera</button>
+          <div class="hint">Ritar alla profiler i stående format, laddar upp dem och lägger inmätningen i listan som sprängarna väljer från under /m. Första gången frågar appen efter delningsnyckeln. På telefonen går det bara att titta, inte ändra.</div>
           <div id="share-result" class="share-result hidden">
             <canvas id="share-qr"></canvas>
             <div id="share-links" class="share-links"></div>
+            <button id="btn-unpublish" class="secondary">Avpublicera</button>
           </div>
         </section>
         <ul id="warnings" class="warnings"></ul>
+        <dialog id="publish-dialog" class="publish-dialog">
+          <form method="dialog">
+            <h3>Publicera till telefonerna</h3>
+            <label>Plats<input id="pub-site" required maxlength="80" /></label>
+            <label>Inmätningsdatum<input id="pub-date" type="date" required /></label>
+            <label>Anteckning<input id="pub-note" maxlength="200" placeholder="valfritt" /></label>
+            <p class="hint">Samma plats och datum ersätter en tidigare publicering.</p>
+            <div class="row">
+              <button value="cancel" class="secondary" formnovalidate>Avbryt</button>
+              <button value="ok">Publicera</button>
+            </div>
+          </form>
+        </dialog>
       </aside>
       <main id="main">
         <nav class="tabs">

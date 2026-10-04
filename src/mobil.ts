@@ -3,6 +3,7 @@ import { fetchShare, type ShareBundle } from "./core/share";
 import { CLASS_COLORS, fmt } from "./view/format";
 import { attachHover } from "./view/hover";
 import { drawProfile, type HoverSample } from "./view/profile";
+import { formatDate, timeAgo, type Catalog, type CatalogEntry } from "./core/catalog";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -85,11 +86,79 @@ window.addEventListener("resize", () => {
   resizeTimer = window.setTimeout(render, 150);
 });
 
+// ---------- Listan över inmätningar: inloggning med företagets kod, sedan ett kort per publicering ----------
+
+async function initList(): Promise<void> {
+  $("app").classList.add("list");
+  $("title").textContent = "Sond appen";
+  $("subtitle").textContent = "Inmätningar";
+  $("info").textContent = "";
+  document.title = "Sond appen · inmätningar";
+  await loadCatalog();
+}
+
+async function loadCatalog(): Promise<void> {
+  $("view").innerHTML = `<p class="empty">Hämtar …</p>`;
+  let res: Response;
+  try {
+    res = await fetch("/api/m/catalog", { cache: "no-store" });
+  } catch {
+    message("Ingen kontakt med servern.");
+    return;
+  }
+  if (res.status === 401) {
+    renderLogin();
+    return;
+  }
+  if (!res.ok) {
+    message(`Kunde inte hämta listan: ${res.status}`);
+    return;
+  }
+  const catalog = (await res.json()) as Catalog;
+  renderCards(catalog.entries ?? []);
+}
+
+function renderLogin(error = ""): void {
+  $("view").innerHTML = `
+    <form class="login" id="login-form">
+      <h2>Logga in</h2>
+      <p>Ange företagets åtkomstkod.</p>
+      <input id="login-code" inputmode="numeric" autocomplete="one-time-code" placeholder="Kod" required autofocus />
+      <button type="submit">Logga in</button>
+      ${error ? `<p class="error">${esc(error)}</p>` : ""}
+    </form>`;
+  $("login-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    void login($<HTMLInputElement>("login-code").value);
+  });
+}
+
+async function login(code: string): Promise<void> {
+  const res = await fetch("/api/m/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+  if (res.ok) await loadCatalog();
+  else renderLogin(res.status === 401 ? "Fel kod. Försök igen." : `Inloggningen misslyckades: ${res.status}`);
+}
+
+function renderCards(entries: CatalogEntry[]): void {
+  if (entries.length === 0) {
+    $("view").innerHTML = `<p class="empty">Inga publicerade inmätningar ännu.</p>`;
+    return;
+  }
+  const card = (e: CatalogEntry) => `
+    <a class="card" href="/m/${esc(e.id)}">
+      <b>${esc(e.site)}</b>
+      <span>${esc(formatDate(e.date))} · ${e.holes} hål</span>
+      ${e.note ? `<span class="note">${esc(e.note)}</span>` : ""}
+      <span class="when">Publicerad ${esc(timeAgo(e.published))}</span>
+    </a>`;
+  $("view").innerHTML = `<div class="cards">${entries.map(card).join("")}</div>`;
+}
+
 async function init(): Promise<void> {
-  // Länken är mobil.html?s=<id> under utveckling och /m/<id> på Vercel (omskrivning i vercel.json).
+  // Länken är /m/<id> (Vercel och dev-servern) eller mobil.html?s=<id>. Utan id visas listan.
   const id = params.get("s") ?? /^\/m\/([A-Za-z0-9_-]+)/.exec(location.pathname)?.[1] ?? null;
   if (!id) {
-    message("Ingen profil angiven. Öppna länken eller QR-koden från skrivbordsappen.");
+    await initList();
     return;
   }
   try {

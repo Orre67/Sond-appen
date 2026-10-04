@@ -1,10 +1,12 @@
 import { del, list } from "@vercel/blob";
+import { readRegister, writeRegister } from "../../src/server/blob";
 
 const KEEP_DAYS = 30;
 
 /**
  * Daglig rensning (vercel.json): tar bort delningspaket äldre än KEEP_DAYS dagar så att
- * lagringen på gratisnivån inte fylls. Vercel anropar med Authorization: Bearer CRON_SECRET.
+ * lagringen på gratisnivån inte fylls, och plockar bort dem ur registret. Vercel anropar
+ * med Authorization: Bearer CRON_SECRET.
  */
 export async function GET(request: Request): Promise<Response> {
   const secret = process.env.CRON_SECRET;
@@ -20,5 +22,14 @@ export async function GET(request: Request): Promise<Response> {
     cursor = page.hasMore ? page.cursor : undefined;
   } while (cursor);
   if (old.length > 0) await del(old);
-  return Response.json({ deleted: old.length, keepDays: KEEP_DAYS });
+
+  const deletedIds = new Set(old.map((u) => /share\/([a-z0-9]+)\.json$/i.exec(u)?.[1]?.toLowerCase()).filter((x): x is string => !!x));
+  let pruned = 0;
+  if (deletedIds.size > 0) {
+    const catalog = await readRegister();
+    const entries = catalog.entries.filter((e) => !deletedIds.has(e.id));
+    pruned = catalog.entries.length - entries.length;
+    if (pruned > 0) await writeRegister({ version: 1, entries });
+  }
+  return Response.json({ deleted: old.length, pruned, keepDays: KEEP_DAYS });
 }

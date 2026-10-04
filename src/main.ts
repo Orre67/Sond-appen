@@ -14,7 +14,8 @@ import { parseStartPoints, type StartPoint } from "./io/startpoints";
 import { CLASS_COLORS, fmt, holeClass } from "./view/format";
 import { blastBearingFromLine, planFrame, renderPlanSvg, rotatedExtent, type PlanFrame, type PlanPoint } from "./view/plan";
 import QRCode from "qrcode";
-import { uploadShare, type ShareBundle } from "./core/share";
+import { publishEntry, unpublishEntry, uploadShare, type ShareBundle } from "./core/share";
+import { suggestSalva } from "./core/catalog";
 import { attachHover } from "./view/hover";
 import { sectionSegments } from "./geom/section";
 import {
@@ -780,13 +781,37 @@ async function shareKey(): Promise<string | null> {
   return key || null;
 }
 
-/** Ritar alla profiler i stående format, skickar paketet till servern och visar länk och QR-kod. */
+let publishedId: string | null = null;
+
+/** Publiceringsrutan: plats, inmätningsdatum och anteckning, förifyllda ur filnamnen. */
+function askPublishInfo(): Promise<{ site: string; date: string; note: string } | null> {
+  const dlg = $<HTMLDialogElement>("publish-dialog");
+  const suggestion = suggestSalva([...state.profiles.keys()], state.meshName);
+  const site = $<HTMLInputElement>("pub-site");
+  const date = $<HTMLInputElement>("pub-date");
+  const note = $<HTMLInputElement>("pub-note");
+  site.value = suggestion.site;
+  date.value = suggestion.date;
+  note.value = "";
+  return new Promise((resolve) => {
+    dlg.addEventListener(
+      "close",
+      () => resolve(dlg.returnValue === "ok" ? { site: site.value.trim(), date: date.value, note: note.value.trim() } : null),
+      { once: true },
+    );
+    dlg.showModal();
+  });
+}
+
+/** Ritar alla profiler i stående format, laddar upp paketet, lägger inmätningen i listan och visar länk och QR-kod. */
 async function shareToMobile(): Promise<void> {
   if (!state.surface || state.results.length === 0) return;
   if (!scene.textureReady) {
     alert("Texturen läses fortfarande in. Vänta en stund och försök igen, annars blir vyerna framifrån svarta.");
     return;
   }
+  const info = await askPublishInfo();
+  if (!info || !info.site || !info.date) return;
   const btn = $<HTMLButtonElement>("btn-share");
   btn.disabled = true;
   btn.textContent = "Ritar profiler …";
@@ -794,18 +819,37 @@ async function shareToMobile(): Promise<void> {
     const bundle = buildShareBundle();
     btn.textContent = "Skickar …";
     const res = await uploadShare(bundle, shareKey);
+    btn.textContent = "Publicerar …";
+    await publishEntry({ id: res.id, site: info.site, date: info.date, note: info.note, holes: state.results.length }, shareKey);
+    publishedId = res.id;
     const lan = res.urls.find((u) => !u.includes("localhost")) ?? res.urls[0];
-    $("share-links").innerHTML = res.urls.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>`).join("<br>");
+    $("share-links").innerHTML =
+      `<div><b>${esc(info.site)}</b>, ${esc(info.date)}, finns nu i listan på telefonerna.</div>` +
+      res.urls.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>`).join("<br>");
     await QRCode.toCanvas($<HTMLCanvasElement>("share-qr"), lan, { width: 170, margin: 1 });
     $("share-result").classList.remove("hidden");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Fel nyckel: glöm den sparade så att nästa försök frågar igen
     if (/nyckel/i.test(msg)) localStorage.removeItem(SHARE_KEY_STORAGE);
-    alert(`Delningen misslyckades: ${msg}`);
+    alert(`Publiceringen misslyckades: ${msg}`);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Dela profilerna";
+    btn.textContent = "Publicera";
+  }
+}
+
+$("btn-unpublish").addEventListener("click", () => void unpublish());
+
+async function unpublish(): Promise<void> {
+  if (!publishedId) return;
+  if (!confirm("Ta bort inmätningen från listan och radera paketet?")) return;
+  try {
+    await unpublishEntry(publishedId, shareKey);
+    publishedId = null;
+    $("share-result").classList.add("hidden");
+  } catch (err) {
+    alert(`Avpubliceringen misslyckades: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

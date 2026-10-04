@@ -1,5 +1,6 @@
 import type { BurdenClass, BurdenOptions, HoleResult } from "../geom/burden";
 import type { ProfileStyle } from "../view/profile";
+import type { CatalogEntry } from "./catalog";
 
 /**
  * Ett delningspaket: hålens beräknade resultat och ytans snitt längs varje hål, så att telefonen
@@ -71,6 +72,28 @@ export async function uploadShare(bundle: ShareBundle, getKey: () => Promise<str
     multipart: body.length > 20_000_000,
   });
   return { id, urls: [`${location.origin}/m/${id}`] };
+}
+
+async function postPublish(body: unknown): Promise<void> {
+  const res = await fetch("/api/m/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Publiceringen misslyckades: ${res.status}`);
+  }
+}
+
+/** Lägger inmätningen i listan telefonerna väljer från. Samma plats och datum ersätter en tidigare publicering. */
+export async function publishEntry(entry: Omit<CatalogEntry, "published">, getKey: () => Promise<string | null>): Promise<void> {
+  const key = import.meta.env.DEV ? "dev" : await getKey();
+  if (!key) throw new Error("Ingen delningsnyckel angiven.");
+  await postPublish({ key, entry });
+}
+
+/** Tar bort inmätningen ur listan och raderar paketet. */
+export async function unpublishEntry(id: string, getKey: () => Promise<string | null>): Promise<void> {
+  const key = import.meta.env.DEV ? "dev" : await getKey();
+  if (!key) throw new Error("Ingen delningsnyckel angiven.");
+  await postPublish({ key, remove: id });
 }
 
 export async function fetchShare(id: string): Promise<ShareBundle> {

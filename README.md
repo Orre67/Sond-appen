@@ -60,11 +60,13 @@ webbläsaren per fil, och hålets ursprungliga nummer visas inom parentes under 
 
 ## Mobilsidan för sprängarna
 
-Knappen "Dela profilerna" skickar hålens resultat, ytans snitt längs varje hål och en färdigritad
-vy framifrån till servern. Svaret är en länk och en QR-kod. Telefoner på samma nätverk öppnar
-`http://<datorns ip>:5173/mobil.html?s=<id>` och ser profilerna utan att kunna ändra något.
-Snittet ritas på telefonen i skärmens egen storlek, så bilden fyller skärmen oavsett modell
-och vridning:
+Knappen "Publicera" öppnar en ruta med plats, inmätningsdatum och anteckning, förifyllda ur
+filnamnen, skickar hålens resultat, ytans snitt längs varje hål och en färdigritad vy framifrån
+till servern och lägger inmätningen i listan på `/m`. Svaret är en länk och en QR-kod direkt
+till salvan. Samma plats och datum ersätter en tidigare publicering, och "Avpublicera" tar bort
+den igen. På telefonen öppnar sprängaren `/m`, loggar in en gång med företagets åtkomstkod
+(`ACCESS_CODE`, kakan gäller 30 dagar) och väljer inmätning i listan. Snittet ritas på telefonen
+i skärmens egen storlek, så bilden fyller skärmen oavsett modell och vridning:
 
 - Dra fingret längs hålet så visas försättningen och djupet där fingret är, och markeringen
   står kvar när fingret lyfts.
@@ -86,7 +88,12 @@ Vercel Blob, publik lagring i region Stockholm:
   första gången och sparar den i webbläsaren.
 - `api/share/[id].ts` skickar telefonen vidare till paketets adress i Blob. Länken är
   `https://sond-appen.vercel.app/m/<id>` (omskrivning i `vercel.json`).
-- `api/cron/cleanup.ts` körs varje natt och tar bort paket äldre än 30 dagar (`CRON_SECRET`).
+- `api/m/login.ts` loggar in telefonen med åtkomstkoden (`ACCESS_CODE`) och sätter en signerad
+  kaka. `api/m/catalog.ts` lämnar ut registret över publicerade inmätningar till inloggade.
+  `api/m/publish.ts` tar emot skrivbordets publicering och avpublicering (kräver `SHARE_KEY`).
+  Registret är en JSON-fil i samma Blob-lagring under en hemlig sökväg (`REGISTER_SECRET`).
+- `api/cron/cleanup.ts` körs varje natt och tar bort paket äldre än 30 dagar (`CRON_SECRET`),
+  och plockar bort dem ur registret.
 
 Miljövariabler sätts med `npx vercel env add` och hämtas lokalt med `npx vercel env pull .env.local`.
 `node scripts/vercel-smoke.mjs https://sond-appen.vercel.app` kör hela flödet mot den publika
