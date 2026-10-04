@@ -115,7 +115,7 @@ function drawPlan(): void {
     plan.bounds,
     plan.image ? { dataUrl: plan.image } : null,
     lastHole,
-    { bearing: plan.bearing, points: plan.points, sourceIds: new Map(plan.sourceIds), extent: plan.extent, pixelScale, viewport: current },
+    { bearing: plan.bearing, points: plan.points, sourceIds: new Map(plan.sourceIds), extent: plan.extent, pixelScale, viewport: current, northAndScale: false },
   );
   const svg = view.querySelector("svg");
   if (!svg) return;

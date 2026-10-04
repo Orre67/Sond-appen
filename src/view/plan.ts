@@ -32,6 +32,8 @@ export interface PlanExtras {
   pixelScale: number | null;
   /** Synlig del av kartan (viewBox) när bilden är zoomad, så att pilar och skalstock hamnar i det man ser. */
   viewport: { x: number; y: number; w: number; h: number } | null;
+  /** Norrpil och skalstock. Avstängda på telefonen, där de bara flyter löst över bilden. */
+  northAndScale: boolean;
 }
 
 /** Utbredning i den vridna ramen, i meter kring modellens centrum. */
@@ -132,7 +134,16 @@ export function blastBearingFromLine(e0: number, n0: number, e1: number, n1: num
 const INK = "#141414";
 const MUTED = "#8a8a8a";
 const DIRECTION_COLOR = "#e08a1e";
-const DEFAULT_EXTRAS: PlanExtras = { bearing: null, points: [], sourceIds: new Map(), numbering: false, extent: null, pixelScale: null, viewport: null };
+const DEFAULT_EXTRAS: PlanExtras = {
+  bearing: null,
+  points: [],
+  sourceIds: new Map(),
+  numbering: false,
+  extent: null,
+  pixelScale: null,
+  viewport: null,
+  northAndScale: true,
+};
 
 /**
  * Översikt av hela salvan uppifrån: ortofotot, hålens spår och nummer, inget mer. Inga mått och
@@ -236,11 +247,13 @@ export function renderPlanSvg(
 
   // Norrpil, vriden med kartan, med bokstaven upprätt. På telefonen längre från kanten så att den inte klipps.
   const top = S ? 5 : 3.2;
-  parts.push(`<g transform="translate(${f(V.x + V.w - 3 * 8 * u)},${f(V.y + top * 8 * u)}) rotate(${f(-B)})">`);
-  parts.push(`<line x1="0" y1="${d(2.2)}" x2="0" y2="${d(-1.6)}" stroke="#222" stroke-width="${d(0.25)}"/>`);
-  parts.push(`<polygon points="0,${d(-2.4)} ${d(-0.7)},${d(-0.9)} ${d(0.7)},${d(-0.9)}" fill="#222"/>`);
-  parts.push(`<text x="0" y="${d(-2.9)}" transform="rotate(${f(B)} 0 ${d(-2.9)})" font-size="${d(1.4)}" font-weight="700" text-anchor="middle" fill="#222">N</text>`);
-  parts.push(`</g>`);
+  if (ex.northAndScale) {
+    parts.push(`<g transform="translate(${f(V.x + V.w - 3 * 8 * u)},${f(V.y + top * 8 * u)}) rotate(${f(-B)})">`);
+    parts.push(`<line x1="0" y1="${d(2.2)}" x2="0" y2="${d(-1.6)}" stroke="#222" stroke-width="${d(0.25)}"/>`);
+    parts.push(`<polygon points="0,${d(-2.4)} ${d(-0.7)},${d(-0.9)} ${d(0.7)},${d(-0.9)}" fill="#222"/>`);
+    parts.push(`<text x="0" y="${d(-2.9)}" transform="rotate(${f(B)} 0 ${d(-2.9)})" font-size="${d(1.4)}" font-weight="700" text-anchor="middle" fill="#222">N</text>`);
+    parts.push(`</g>`);
+  }
 
   // Skjutriktning: pil uppåt mitt på överkanten
   if (ex.bearing !== null) {
@@ -253,13 +266,15 @@ export function renderPlanSvg(
     parts.push(`</g>`);
   }
 
-  // Skalstock: alltid 10 m lång, så den visar skalan även när bilden zoomas. På telefonen till höger, bort från knappen.
-  parts.push(`<g transform="translate(${f(S ? V.x + V.w - 2 * 8 * u - 10 : V.x + 2 * 8 * u)},${f(V.y + V.h - (S ? 11 : 2) * 8 * u)})">`);
-  parts.push(`<line x1="0" y1="0" x2="10" y2="0" stroke="#222" stroke-width="${d(0.3)}"/>`);
-  parts.push(`<line x1="0" y1="${d(-0.5)}" x2="0" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
-  parts.push(`<line x1="10" y1="${d(-0.5)}" x2="10" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
-  parts.push(`<text x="5" y="${d(-0.8)}" font-size="${d(1.2)}" text-anchor="middle" fill="#222">10 m</text>`);
-  parts.push(`</g>`);
+  // Skalstock: alltid 10 m lång, så den visar skalan även när bilden zoomas
+  if (ex.northAndScale) {
+    parts.push(`<g transform="translate(${f(V.x + 2 * 8 * u)},${f(V.y + V.h - 2 * 8 * u)})">`);
+    parts.push(`<line x1="0" y1="0" x2="10" y2="0" stroke="#222" stroke-width="${d(0.3)}"/>`);
+    parts.push(`<line x1="0" y1="${d(-0.5)}" x2="0" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
+    parts.push(`<line x1="10" y1="${d(-0.5)}" x2="10" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
+    parts.push(`<text x="5" y="${d(-0.8)}" font-size="${d(1.2)}" text-anchor="middle" fill="#222">10 m</text>`);
+    parts.push(`</g>`);
+  }
 
   // Lager för linjen som dras när skjutriktningen ritas
   parts.push(`<g id="plan-overlay" pointer-events="none"></g>`);
