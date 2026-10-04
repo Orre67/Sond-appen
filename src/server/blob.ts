@@ -1,5 +1,5 @@
 import { del, put } from "@vercel/blob";
-import { emptyCatalog, type Catalog } from "../core/catalog";
+import { emptyCatalog, type Catalog } from "../core/catalog.js";
 
 /** Publika blobbar nås på https://<lagrings-id>.public.blob.vercel-storage.com/<sökväg>. Id:t står i skrivnyckeln. */
 export function publicBase(): string {

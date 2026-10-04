@@ -1,5 +1,5 @@
-import { isLoggedIn } from "../../src/server/auth";
-import { readRegister } from "../../src/server/blob";
+import { isLoggedIn } from "../../src/server/auth.js";
+import { readRegister } from "../../src/server/blob.js";
 
 /** Listan över publicerade inmätningar, bara för inloggade telefoner. */
 export async function GET(request: Request): Promise<Response> {

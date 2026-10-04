@@ -1,5 +1,5 @@
-import { removeEntry, upsertEntry, type CatalogEntry } from "../../src/core/catalog";
-import { deleteBundle, readRegister, writeRegister } from "../../src/server/blob";
+import { removeEntry, upsertEntry, type CatalogEntry } from "../../src/core/catalog.js";
+import { deleteBundle, readRegister, writeRegister } from "../../src/server/blob.js";
 
 interface PublishBody {
   key?: string;

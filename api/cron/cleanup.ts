@@ -1,5 +1,5 @@
 import { del, list } from "@vercel/blob";
-import { readRegister, writeRegister } from "../../src/server/blob";
+import { readRegister, writeRegister } from "../../src/server/blob.js";
 
 const KEEP_DAYS = 30;
 

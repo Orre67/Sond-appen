@@ -1,4 +1,4 @@
-import { codeMatches, createSession, isLoggedIn, sessionCookie } from "../../src/server/auth";
+import { codeMatches, createSession, isLoggedIn, sessionCookie } from "../../src/server/auth.js";
 
 /** GET: är telefonen inloggad? POST { code }: logga in med företagets åtkomstkod. */
 export async function GET(request: Request): Promise<Response> {

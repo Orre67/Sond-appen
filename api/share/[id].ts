@@ -1,4 +1,4 @@
-import { bundleUrl } from "../../src/server/blob";
+import { bundleUrl } from "../../src/server/blob.js";
 
 /**
  * GET /api/share/<id>: skickar telefonen vidare till paketets adress i Blob. Paketet hämtas
