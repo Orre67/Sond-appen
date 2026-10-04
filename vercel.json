@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [{ "path": "/api/cron/cleanup", "schedule": "0 3 * * *" }],
+  "rewrites": [{ "source": "/m/:id", "destination": "/mobil.html?s=:id" }],
+  "headers": [
+    {
+      "source": "/(mobil.html|index.html|m/.*)",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    }
+  ]
+}

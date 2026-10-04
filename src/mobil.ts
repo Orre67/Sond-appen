@@ -86,7 +86,8 @@ window.addEventListener("resize", () => {
 });
 
 async function init(): Promise<void> {
-  const id = params.get("s");
+  // Länken är mobil.html?s=<id> under utveckling och /m/<id> på Vercel (omskrivning i vercel.json).
+  const id = params.get("s") ?? /^\/m\/([A-Za-z0-9_-]+)/.exec(location.pathname)?.[1] ?? null;
   if (!id) {
     message("Ingen profil angiven. Öppna länken eller QR-koden från skrivbordsappen.");
     return;

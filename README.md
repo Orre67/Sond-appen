@@ -72,7 +72,25 @@ och vridning:
 - Svep åt höger ger nästa hål, svep åt vänster föregående. De två stora pilarna överst gör samma sak.
 
 Under utveckling tar dev-servern emot paketen via `POST /api/share` och sparar dem i
-`out/share/`. På Vercel ersätts det av en serverless-funktion med samma gränssnitt.
+`out/share/`.
+
+### Publik app på Vercel
+
+Appen ligger på https://sond-appen.vercel.app (projektet sond-appen i Vercel, kopplat till
+GitHub-repot så att varje push till main bygger och driftsätter). Delningspaketen lagras i
+Vercel Blob, publik lagring i region Stockholm:
+
+- `api/share/upload.ts` lämnar ut en kortlivad uppladdningsnyckel om klienten skickar rätt
+  delningsnyckel (miljövariabeln `SHARE_KEY`). Paketet går sedan direkt från webbläsaren till
+  Blob, eftersom en funktion bara får ta emot 4,5 MB. Skrivbordsappen frågar efter nyckeln
+  första gången och sparar den i webbläsaren.
+- `api/share/[id].ts` skickar telefonen vidare till paketets adress i Blob. Länken är
+  `https://sond-appen.vercel.app/m/<id>` (omskrivning i `vercel.json`).
+- `api/cron/cleanup.ts` körs varje natt och tar bort paket äldre än 30 dagar (`CRON_SECRET`).
+
+Miljövariabler sätts med `npx vercel env add` och hämtas lokalt med `npx vercel env pull .env.local`.
+`node scripts/vercel-smoke.mjs https://sond-appen.vercel.app` kör hela flödet mot den publika
+appen: läser in exempelfilerna via filväljaren, delar och öppnar länken i telefonstorlek.
 
 ### Demoläge under utveckling
 

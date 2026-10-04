@@ -768,6 +768,18 @@ $("btn-print").addEventListener("click", () => {
 
 $("btn-share").addEventListener("click", () => void shareToMobile());
 
+const SHARE_KEY_STORAGE = "sond-appen:delningsnyckel";
+
+/** Delningsnyckeln (SHARE_KEY på servern) frågas efter en gång och sparas i webbläsaren. */
+async function shareKey(): Promise<string | null> {
+  let key = localStorage.getItem(SHARE_KEY_STORAGE);
+  if (!key) {
+    key = window.prompt("Delningsnyckel (samma som SHARE_KEY på servern):")?.trim() ?? null;
+    if (key) localStorage.setItem(SHARE_KEY_STORAGE, key);
+  }
+  return key || null;
+}
+
 /** Ritar alla profiler i stående format, skickar paketet till servern och visar länk och QR-kod. */
 async function shareToMobile(): Promise<void> {
   if (!state.surface || state.results.length === 0) return;
@@ -781,13 +793,16 @@ async function shareToMobile(): Promise<void> {
   try {
     const bundle = buildShareBundle();
     btn.textContent = "Skickar …";
-    const res = await uploadShare(bundle);
+    const res = await uploadShare(bundle, shareKey);
     const lan = res.urls.find((u) => !u.includes("localhost")) ?? res.urls[0];
     $("share-links").innerHTML = res.urls.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>`).join("<br>");
     await QRCode.toCanvas($<HTMLCanvasElement>("share-qr"), lan, { width: 170, margin: 1 });
     $("share-result").classList.remove("hidden");
   } catch (err) {
-    alert(`Delningen misslyckades: ${err instanceof Error ? err.message : String(err)}`);
+    const msg = err instanceof Error ? err.message : String(err);
+    // Fel nyckel: glöm den sparade så att nästa försök frågar igen
+    if (/nyckel/i.test(msg)) localStorage.removeItem(SHARE_KEY_STORAGE);
+    alert(`Delningen misslyckades: ${msg}`);
   } finally {
     btn.disabled = false;
     btn.textContent = "Dela profilerna";
@@ -809,7 +824,8 @@ function buildShareBundle(): ShareBundle {
     let frontSvg: string | null = null;
     try {
       const L = frontLayout(r, state.opts, { width: 420, height: 620, compact: true, showTrace: state.showTrace, showSkipped: state.showSkipped });
-      const img = scene.renderFront(r.path.collar, L.frame.u, L.frame.n, L.latMin, L.latMax, L.zMin, L.zMax, Math.round(L.fw * 2.2));
+      // Lägre upplösning och JPEG-kvalitet än på skrivbordet: bilderna är nästan hela paketet som telefonen hämtar.
+      const img = scene.renderFront(r.path.collar, L.frame.u, L.frame.n, L.latMin, L.latMax, L.zMin, L.zMax, Math.round(L.fw * 1.6), 0.72);
       frontSvg = renderFrontSvg(r, state.opts, { compact: true, showTrace: state.showTrace }, L, img ?? undefined);
     } catch (err) {
       console.warn(`Hål ${r.id}: ingen vy framifrån`, err);

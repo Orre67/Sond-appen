@@ -43,14 +43,34 @@ function compactNumbers(_key: string, value: unknown): unknown {
   return typeof value === "number" && Number.isFinite(value) ? Math.round(value * 1e4) / 1e4 : value;
 }
 
-export async function uploadShare(bundle: ShareBundle): Promise<ShareResponse> {
-  const res = await fetch("/api/share", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(bundle, compactNumbers),
+function newShareId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+/**
+ * Skickar paketet dit telefonen kan hämta det. Under utveckling tar Vites dev-server emot det
+ * (vite.config.ts). I produktion går det direkt från webbläsaren till Vercel Blob, efter ett
+ * nyckelutbyte med /api/share/upload där delningsnyckeln kontrolleras.
+ */
+export async function uploadShare(bundle: ShareBundle, getKey: () => Promise<string | null>): Promise<ShareResponse> {
+  const body = JSON.stringify(bundle, compactNumbers);
+  if (import.meta.env.DEV) {
+    const res = await fetch("/api/share", { method: "POST", headers: { "content-type": "application/json" }, body });
+    if (!res.ok) throw new Error(`Delningen misslyckades: ${res.status} ${await res.text()}`);
+    return (await res.json()) as ShareResponse;
+  }
+  const key = await getKey();
+  if (!key) throw new Error("Ingen delningsnyckel angiven.");
+  const id = newShareId();
+  const { upload } = await import("@vercel/blob/client");
+  await upload(`share/${id}.json`, new Blob([body], { type: "application/json" }), {
+    access: "public",
+    handleUploadUrl: "/api/share/upload",
+    contentType: "application/json",
+    clientPayload: JSON.stringify({ key }),
+    multipart: body.length > 20_000_000,
   });
-  if (!res.ok) throw new Error(`Delningen misslyckades: ${res.status} ${await res.text()}`);
-  return (await res.json()) as ShareResponse;
+  return { id, urls: [`${location.origin}/m/${id}`] };
 }
 
 export async function fetchShare(id: string): Promise<ShareBundle> {

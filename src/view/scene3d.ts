@@ -281,6 +281,7 @@ export class Scene3D {
     zMin: number,
     zMax: number,
     widthPx: number,
+    quality = 0.85,
   ): string | null {
     if (!this.surfaceMesh) return null;
     const o = this.origin;
@@ -301,11 +302,11 @@ export class Scene3D {
     cam.updateProjectionMatrix();
     const px = Math.max(1, Math.round(widthPx));
     const py = Math.max(1, Math.round((widthPx * (zMax - zMin)) / (latMax - latMin)));
-    return this.renderWithCamera(cam, px, py);
+    return this.renderWithCamera(cam, px, py, false, quality);
   }
 
   /** Renderar bara ytan med given kamera. Med transparent blir allt utanför modellen genomskinligt. */
-  private renderWithCamera(cam: THREE.Camera, px: number, py: number, transparent = false): string {
+  private renderWithCamera(cam: THREE.Camera, px: number, py: number, transparent = false, quality = 0.85): string {
     const prev = new THREE.Vector2();
     this.renderer.getSize(prev);
     const prevPixelRatio = this.renderer.getPixelRatio();
@@ -326,7 +327,7 @@ export class Scene3D {
     // Genomskinlighet kräver ett format med alfakanal. Webbläsare utan WebP-kodning ger PNG.
     const url = transparent
       ? this.renderer.domElement.toDataURL("image/webp", 0.9)
-      : this.renderer.domElement.toDataURL("image/jpeg", 0.85);
+      : this.renderer.domElement.toDataURL("image/jpeg", quality);
     this.scene.background = prevBackground;
     this.renderer.setClearColor(prevClear, prevAlpha);
     groups.forEach((g, i) => (g.visible = vis[i]));
