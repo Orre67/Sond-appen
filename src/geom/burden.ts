@@ -91,6 +91,8 @@ export interface HoleResult {
   /** Minsta försättning bland stickor/punkter under startdjupet. */
   minBurden: number | null;
   minBurdenDepth: number | null;
+  /** Hålbanan utan den automatiska bäringskorrektionen, ritas som spöklinje i profilen när Auto är på. */
+  ghost?: HolePath;
 }
 
 function classOf(burden: number | null, skipped: boolean, opts: BurdenOptions): BurdenClass {

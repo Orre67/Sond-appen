@@ -162,6 +162,7 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
     latMax = Math.max(latMax, -q.off);
   };
   for (const p of r.path.points) take(p);
+  if (r.ghost) for (const p of r.ghost.points) take(p);
   for (const row of drawn) {
     take(row.point);
     if (row.closest && row.burden !== null) take(lineEnd(row.point, row.closest, row.burden, cap).end);
@@ -263,13 +264,20 @@ function headerLines(r: HoleResult, opts: BurdenOptions, bearing: number, compac
   const incl = holeMeanInclination(r);
   const modeText = opts.mode === "stick" ? `Måttsticka ${fmt(opts.interval, 1)} m, sämsta värde per sticka` : `Punkt var ${fmt(opts.interval, 1)} m`;
   const minText = r.minBurden !== null ? `Minsta försättning ${fmt(r.minBurden, 2)} m på ${fmt(r.minBurdenDepth, 1)} m` : "Ingen yta hittad";
-  if (compact) return [holeInfoText(r, bearing), minText];
-  return [[`Längd ${fmt(r.path.length, 1)} m`, `Bäring ${fmt(bearing, 0)}°`, `Lutning ${fmt(incl, 0)}° från lod`, modeText, minText].join("   ·   ")];
+  if (compact) return [holeInfoText(r, bearing, opts.bearingCorrection), minText];
+  const corrText = Math.abs(opts.bearingCorrection) > 1e-9 ? [`Bäringskorrektion ${signedDeg(opts.bearingCorrection)}`] : [];
+  return [[`Längd ${fmt(r.path.length, 1)} m`, `Bäring ${fmt(bearing, 0)}°`, `Lutning ${fmt(incl, 0)}° från lod`, ...corrText, modeText, minText].join("   ·   ")];
 }
 
-/** Kort beskrivning av hålet för telefonsidans rubrik. */
-export function holeInfoText(r: HoleResult, bearing = holeMeanBearing(r)): string {
-  return `Längd ${fmt(r.path.length, 1)} m · Bäring ${fmt(bearing, 0)}° · Lutning ${fmt(holeMeanInclination(r), 0)}°`;
+/** Vinkel med tecken, t.ex. +5,9°. */
+export function signedDeg(v: number): string {
+  return `${v < 0 ? "−" : "+"}${fmt(Math.abs(v), 1)}°`;
+}
+
+/** Kort beskrivning av hålet för telefonsidans rubrik. Bäringen är den korrigerade; korrektionen anges när den inte är noll. */
+export function holeInfoText(r: HoleResult, bearing = holeMeanBearing(r), correction = 0): string {
+  const base = `Längd ${fmt(r.path.length, 1)} m · Bäring ${fmt(bearing, 0)}° · Lutning ${fmt(holeMeanInclination(r), 0)}°`;
+  return Math.abs(correction) > 1e-9 ? `${base} · Bäringskorr. ${signedDeg(correction)}` : base;
 }
 
 function footerText(r: HoleResult, opts: BurdenOptions, compact: boolean): string {
@@ -449,6 +457,14 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
     }
   }
 
+  // Hålbanan utan automatisk bäringskorrektion, som jämförelse
+  if (r.ghost) {
+    const gp = r.ghost.points.map((p) => projectToSection(frame, p));
+    parts.push(
+      `<polyline points="${gp.map((p) => `${f1(X(p.s))},${f1(Y(p.z))}`).join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="1.4" stroke-dasharray="4 4" opacity="0.35" stroke-linejoin="round"/>`,
+    );
+  }
+
   // Hålet
   parts.push(
     `<polyline points="${hp.map((p) => `${f1(X(p.s))},${f1(Y(p.z))}`).join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`,
@@ -599,6 +615,11 @@ function renderFrontPanel(
   // Hålet, bakom väggen
   const hole = r.path.points.map((p) => `${f1(FX(lateralOf(frame, p)))},${f1(Y(p[2]))}`);
   parts.push(`<polyline points="${hole.join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="1.6" stroke-dasharray="5 4" opacity="0.8"/>`);
+  // Hålbanan utan automatisk bäringskorrektion: vridningen syns i sidled, alltså här och inte i snittet.
+  if (r.ghost) {
+    const ghost = r.ghost.points.map((p) => `${f1(FX(lateralOf(frame, p)))},${f1(Y(p[2]))}`);
+    parts.push(`<polyline points="${ghost.join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="1.4" stroke-dasharray="3 4" opacity="0.4"/>`);
+  }
 
   // Ytspåret
   if (showTrace) {

@@ -6,6 +6,8 @@ import { checkCollars } from "./core/check";
 import { applyRenames, assignNumber, clearNumbers, numberUnnumbered, type Applied, type Renames } from "./core/numbering";
 import { linkHoles } from "./core/project";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions, type HoleResult } from "./geom/burden";
+import { autoBearingCorrection, describeCorrection, type AutoBearingCorrection } from "./geom/geodesy";
+import { buildHolePath } from "./geom/hole";
 import { Surface } from "./geom/surface";
 import { parseDm4, type SondeProfile } from "./io/dm4";
 import type { MeshData } from "./io/mesh";
@@ -15,7 +17,7 @@ import { CLASS_COLORS, fmt, holeClass } from "./view/format";
 import { blastBearingFromLine, planFrame, renderPlanSvg, rotatedExtent, type PlanFrame, type PlanPoint } from "./view/plan";
 import QRCode from "qrcode";
 import { publishEntry, unpublishEntry, uploadShare, type ShareBundle, type SharePlan } from "./core/share";
-import { suggestSalva } from "./core/catalog";
+import { dateFromFileName, suggestSalva } from "./core/catalog";
 import { attachHover } from "./view/hover";
 import { sectionSegments } from "./geom/section";
 import {
@@ -26,6 +28,7 @@ import {
   renderProfile,
   renderProfileSvg,
   sectionWindowFor,
+  signedDeg,
   type ProfileStyle,
 } from "./view/profile";
 import { Scene3D } from "./view/scene3d";
@@ -58,6 +61,9 @@ const state = {
   dm4Warnings: new Map<string, string[]>(),
   files: [] as FileEntry[],
   opts: { ...DEFAULT_OPTIONS } as BurdenOptions,
+  /** Automatisk bäringskorrektion: kryssrutan och underlaget för aktuell ytmodell och sonderingsdatum. */
+  autoCorr: false,
+  autoInfo: null as AutoBearingCorrection | null,
   results: [] as HoleResult[],
   selectedId: null as string | null,
   showAll: false,
@@ -283,8 +289,21 @@ function renderFileStatus(): void {
 
 // ---------- Inställningar ----------
 
-const optIds = ["opt-interval", "opt-mode", "opt-start", "opt-free", "opt-fine", "opt-min", "opt-max", "opt-corr", "opt-method"];
+const AUTO_KEY = "sond.autoCorrection";
+const optIds = ["opt-interval", "opt-mode", "opt-start", "opt-free", "opt-fine", "opt-min", "opt-max", "opt-corr", "opt-auto", "opt-method"];
 for (const id of optIds) $(id).addEventListener("change", () => recompute());
+try {
+  $<HTMLInputElement>("opt-auto").checked = localStorage.getItem(AUTO_KEY) === "1";
+} catch {
+  // Ingen lagring tillgänglig
+}
+$("opt-auto").addEventListener("change", () => {
+  try {
+    localStorage.setItem(AUTO_KEY, $<HTMLInputElement>("opt-auto").checked ? "1" : "0");
+  } catch {
+    // Ingen lagring tillgänglig
+  }
+});
 
 function readOptions(): BurdenOptions {
   const num = (id: string, fallback: number) => {
@@ -300,15 +319,51 @@ function readOptions(): BurdenOptions {
     fineStep: Math.min(0.5, Math.max(0.01, num("opt-fine", 0.05))),
     minBurden: num("opt-min", 1.5),
     maxBurden: num("opt-max", 3.5),
-    bearingCorrection: num("opt-corr", 0),
+    bearingCorrection: num("opt-corr", 0) + (state.autoCorr && state.autoInfo ? state.autoInfo.correction : 0),
     method: $<HTMLSelectElement>("opt-method").value === "tangent" ? "tangent" : "average",
   };
+}
+
+/** Sonderingsdatum ur DM4-filernas namn, annars i dag. */
+function soundingDate(): Date {
+  for (const name of state.profiles.keys()) {
+    const d = dateFromFileName(name);
+    if (d) {
+      const [y, m, day] = d.split("-").map(Number);
+      return new Date(y, m - 1, day);
+    }
+  }
+  return new Date();
+}
+
+/** Underlaget för Auto: ytmodellens mitt i SWEREF 99 TM och sonderingsdatumet. */
+function computeAutoInfo(): AutoBearingCorrection | null {
+  if (!state.surface) return null;
+  const b = state.surface.bounds;
+  return autoBearingCorrection((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, soundingDate());
+}
+
+function renderAutoInfo(): void {
+  const el = $("auto-info");
+  if (!state.surface) {
+    el.textContent = state.autoCorr ? "Auto: läs in en ytmodell, platsen tas ur den." : "";
+    return;
+  }
+  if (!state.autoInfo) {
+    el.textContent = "Auto: ytmodellens koordinater är inte SWEREF 99 TM, ingen automatisk korrektion.";
+    return;
+  }
+  const prefix = state.autoCorr ? "Auto på: " : "Auto av, skulle ge: ";
+  el.textContent = `${prefix}${describeCorrection(state.autoInfo)}. Tillämpad bäringskorrektion ${signedDeg(state.opts.bearingCorrection)}.`;
 }
 
 // ---------- Beräkning ----------
 
 function recompute(): void {
+  state.autoCorr = $<HTMLInputElement>("opt-auto").checked;
+  state.autoInfo = computeAutoInfo();
   state.opts = readOptions();
+  renderAutoInfo();
   const profiles = [...state.profiles.values()].flat();
   state.applied = applyRenames(state.points, state.renames);
   state.sourceIds = new Map(state.applied.numbered.filter((p) => p.sourceId !== p.id).map((p) => [p.id, p.sourceId]));
@@ -325,7 +380,11 @@ function recompute(): void {
     state.results = [];
     for (const h of link.holes) {
       try {
-        state.results.push(computeHole(surface, h, state.opts));
+        const r = computeHole(surface, h, state.opts);
+        if (state.autoCorr && state.autoInfo && Math.abs(state.autoInfo.correction) > 1e-9) {
+          r.ghost = buildHolePath(h, { method: state.opts.method, bearingCorrection: state.opts.bearingCorrection - state.autoInfo.correction });
+        }
+        state.results.push(r);
       } catch (err) {
         state.linkWarnings.push(`Hål ${h.id}: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -903,7 +962,7 @@ function buildShareBundle(salva: { site: string; date: string; note: string }): 
       minBurden: r.minBurden,
       minBurdenDepth: r.minBurdenDepth,
       cls: holeClass(r, state.opts),
-      info: holeInfoText(r),
+      info: holeInfoText(r, undefined, state.opts.bearingCorrection),
       result: r,
       section,
       frontSvg,

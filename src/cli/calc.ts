@@ -12,6 +12,9 @@ import { checkCollars } from "../core/check";
 import { linkHoles } from "../core/project";
 import { renderProfileSvg } from "../view/profile";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions } from "../geom/burden";
+import { autoBearingCorrection, describeCorrection } from "../geom/geodesy";
+import { buildHolePath } from "../geom/hole";
+import { dateFromFileName } from "../core/catalog";
 import { Surface } from "../geom/surface";
 import { parseDm4, type SondeProfile } from "../io/dm4";
 import { parseLandXml } from "../io/landxml";
@@ -29,10 +32,13 @@ interface Args {
   dxf?: string;
   holes?: string[];
   opts: Partial<BurdenOptions>;
+  /** Automatisk bäringskorrektion ur ytmodellens läge och sonderingsdatumet. */
+  auto: boolean;
+  date?: string;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { dm4: [], out: "out/forsattning.csv", opts: {} };
+  const a: Args = { dm4: [], out: "out/forsattning.csv", opts: {}, auto: false };
   let i = 0;
   const next = () => argv[++i];
   for (; i < argv.length; i++) {
@@ -92,6 +98,12 @@ function parseArgs(argv: string[]): Args {
       case "--crest":
         a.opts.crestMargin = Number(next());
         break;
+      case "--auto":
+        a.auto = true;
+        break;
+      case "--date":
+        a.date = next();
+        break;
       default:
         throw new Error(`Okänt argument: ${k}`);
     }
@@ -113,7 +125,7 @@ const sv = (v: number | null, d = 2) => (v === null ? "" : v.toFixed(d).replace(
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.surface || !args.points || args.dm4.length === 0) {
-    console.error("Användning: --surface <fil> --points <fil> --dm4 <fil...> [--interval 0.5 --min 1.5 --max 3.5 --start 1 --mode stick|point --fine 0.05 --correction 0 --method average|tangent --hole 20 --out fil.csv --svg out/profiler --dxf out/kontroll.dxf --holes 19,20]");
+    console.error("Användning: --surface <fil> --points <fil> --dm4 <fil...> [--interval 0.5 --min 1.5 --max 3.5 --start 1 --mode stick|point --fine 0.05 --correction 0 --auto --date 2026-10-01 --method average|tangent --hole 20 --out fil.csv --svg out/profiler --dxf out/kontroll.dxf --holes 19,20]");
     process.exit(1);
   }
   const t0 = performance.now();
@@ -145,10 +157,28 @@ function main() {
   for (const w of checkCollars(surface, link.holes)) console.log(`  Varning: ${w}`);
 
   const opts = { ...DEFAULT_OPTIONS, ...args.opts };
-  console.log(`\nInställningar: mått ${opts.interval} m, min ${opts.minBurden} m, max ${opts.maxBurden} m, startdjup ${opts.startDepth} m, ${opts.free3dFromDepth > 0 ? `fri 3D från ${opts.free3dFromDepth} m` : "fri 3D hela vägen"} (krönmarginal ${opts.crestMargin} m), metod ${opts.method}, bäringskorrektion ${opts.bearingCorrection}°`);
+  let autoCorrection = 0;
+  if (args.auto) {
+    const dateText = args.date ?? args.dm4.map((f) => dateFromFileName(basename(f))).find((d): d is string => !!d);
+    const parts = dateText ? dateText.split("-").map(Number) : [];
+    const date = parts.length === 3 && parts.every(Number.isFinite) ? new Date(parts[0], parts[1] - 1, parts[2]) : new Date();
+    const b = surface.bounds;
+    const auto = autoBearingCorrection((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, date);
+    if (!auto) console.log("Auto: ytmodellens koordinater är inte SWEREF 99 TM, ingen automatisk bäringskorrektion.");
+    else {
+      autoCorrection = auto.correction;
+      opts.bearingCorrection += auto.correction;
+      console.log(`Auto bäringskorrektion: ${describeCorrection(auto)} (lat ${auto.lat.toFixed(4)}, lon ${auto.lon.toFixed(4)})`);
+    }
+  }
+  console.log(`\nInställningar: mått ${opts.interval} m, min ${opts.minBurden} m, max ${opts.maxBurden} m, startdjup ${opts.startDepth} m, ${opts.free3dFromDepth > 0 ? `fri 3D från ${opts.free3dFromDepth} m` : "fri 3D hela vägen"} (krönmarginal ${opts.crestMargin} m), metod ${opts.method}, bäringskorrektion ${opts.bearingCorrection.toFixed(2)}°`);
 
   const t3 = performance.now();
-  const results = link.holes.map((h) => computeHole(surface, h, opts));
+  const results = link.holes.map((h) => {
+    const r = computeHole(surface, h, opts);
+    if (Math.abs(autoCorrection) > 1e-9) r.ghost = buildHolePath(h, { method: opts.method, bearingCorrection: opts.bearingCorrection - autoCorrection });
+    return r;
+  });
   const t4 = performance.now();
   console.log(`Beräknade ${results.length} hål på ${(t4 - t3).toFixed(0)} ms\n`);
 

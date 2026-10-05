@@ -134,6 +134,8 @@ npm run calc -- --surface yta.obj --points startpunkter.txt --dm4 fil1.dm4 fil2.
 | `--free` | Fri 3D från djup: ovanför detta djup används i stället planet vinkelrätt mot hålet (äldre regel). 0 = fri 3D hela vägen, m | 0 |
 | `--crest` | Krönmarginal: yta högre än påhugget minus detta räknas aldrig som fri yta, m | 0.5 |
 | `--correction` | Bäringskorrektion som läggs på alla mätningar, grader | 0 |
+| `--auto` | Automatisk bäringskorrektion: missvisning (WMM2025) minus meridiankonvergens, ur ytmodellens läge i SWEREF 99 TM och sonderingsdatumet, läggs på `--correction` | av |
+| `--date` | Datum för missvisningen, ÅÅÅÅ-MM-DD. Annars ur DM4-filnamnet, annars i dag | |
 | `--method` | `average` (medelvinkel) eller `tangent` | average |
 | `--hole` | Vilket hål som skrivs ut i detalj | första |
 | `--out` | CSV-fil, semikolon och decimalkomma | out/forsattning.csv |
@@ -173,6 +175,14 @@ och CSV-filen.
 
 Hålbanan byggs med medelvinkelmetoden: mellan två stationer används medelriktningen av
 deras pilar i rummet, så att bäring 359 och 1 ger 0 och inte 180. Tangentmetoden finns som val.
+
+**Bäring.** Sondens bäring är magnetisk. Kryssrutan Auto vid bäringskorrektionen lägger på
+missvisningen ur WMM2025 minus meridiankonvergensen för SWEREF 99 TM, båda räknade ur ytmodellens
+mitt och sonderingsdatumet i DM4-filnamnet, så att hålen hamnar i rutnätets nord. I Norberg blir det
+omkring +6°. Fältet bredvid är ett tillägg för en uppmätt lokal avvikelse. När Auto är på ritas
+hålbanan utan korrektion som en tunn streckad spöklinje i profilen så att skillnaden syns, och
+profilens rubrik och telefonens infotext anger den tillämpade korrektionen. Lokal magnetisk störning
+från berg och rigg rättas inte. Tecknet bör kontrolleras mot riggens GNSS-bäring på några hål.
 
 ## Tester och röktest
 
