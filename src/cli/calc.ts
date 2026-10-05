@@ -86,6 +86,12 @@ function parseArgs(argv: string[]): Args {
       case "--fine":
         a.opts.fineStep = Number(next());
         break;
+      case "--free":
+        a.opts.free3dFromDepth = Number(next());
+        break;
+      case "--crest":
+        a.opts.crestMargin = Number(next());
+        break;
       default:
         throw new Error(`Okänt argument: ${k}`);
     }
@@ -139,7 +145,7 @@ function main() {
   for (const w of checkCollars(surface, link.holes)) console.log(`  Varning: ${w}`);
 
   const opts = { ...DEFAULT_OPTIONS, ...args.opts };
-  console.log(`\nInställningar: mått ${opts.interval} m, min ${opts.minBurden} m, max ${opts.maxBurden} m, startdjup ${opts.startDepth} m, metod ${opts.method}, bäringskorrektion ${opts.bearingCorrection}°`);
+  console.log(`\nInställningar: mått ${opts.interval} m, min ${opts.minBurden} m, max ${opts.maxBurden} m, startdjup ${opts.startDepth} m, ${opts.free3dFromDepth > 0 ? `fri 3D från ${opts.free3dFromDepth} m` : "fri 3D hela vägen"} (krönmarginal ${opts.crestMargin} m), metod ${opts.method}, bäringskorrektion ${opts.bearingCorrection}°`);
 
   const t3 = performance.now();
   const results = link.holes.map((h) => computeHole(surface, h, opts));

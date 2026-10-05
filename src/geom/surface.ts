@@ -17,6 +17,16 @@ export interface ClosestHit {
   faceIndex: number;
 }
 
+/** Ett halvrum i lokala koordinater: yta med q · n >= offset räknas. */
+interface Plane {
+  n: Vector3;
+  absN: Vector3;
+  offset: number;
+}
+
+const MAX_PLANES = 6;
+const MAX_VERTS = 3 + MAX_PLANES;
+
 /**
  * Ytmodell med sökindex (BVH). Koordinaterna flyttas till ett lokalt origo
  * innan de lagras i float32, annars tappar SWEREF-koordinater runt 0,8 m i precision.
@@ -65,14 +75,17 @@ export class Surface {
   }
 
   /**
-   * Närmaste punkt på ytan från p. Med halvrum räknas bara yta på den sida av
-   * planet genom p (med given normal) som normalen pekar mot, med viss tolerans.
+   * Närmaste punkt på ytan från p. Med ett eller flera halvrum räknas bara yta som ligger
+   * på rätt sida av alla planen genom p (med given normal), med viss tolerans.
    */
-  closestPoint(p: Vec3, halfSpace?: HalfSpace): ClosestHit | null {
+  closestPoint(p: Vec3, constraints?: HalfSpace | HalfSpace[]): ClosestHit | null {
     const pl = this.toLocal(p);
-    const n = halfSpace ? new Vector3(...halfSpace.normal).normalize() : null;
-    const offset = n ? pl.dot(n) - halfSpace!.tolerance : 0;
-    const absN = n ? new Vector3(Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)) : null;
+    const list = constraints === undefined ? [] : Array.isArray(constraints) ? constraints : [constraints];
+    if (list.length > MAX_PLANES) throw new Error(`Högst ${MAX_PLANES} halvrum åt gången.`);
+    const planes: Plane[] = list.map((h) => {
+      const n = new Vector3(...h.normal).normalize();
+      return { n, absN: new Vector3(Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)), offset: pl.dot(n) - h.tolerance };
+    });
 
     let best = Infinity;
     const bestPoint = new Vector3();
@@ -86,21 +99,20 @@ export class Surface {
       intersectsBounds: (box: Box3, _isLeaf: boolean, score: number | undefined) => {
         const d = score ?? box.distanceToPoint(pl);
         if (d >= best) return false;
-        if (n && absN) {
+        if (planes.length) {
           box.getCenter(center);
           box.getSize(half).multiplyScalar(0.5);
-          const reach = half.dot(absN);
-          if (center.dot(n) + reach < offset) return false;
+          for (const pn of planes) if (center.dot(pn.n) + half.dot(pn.absN) < pn.offset) return false;
         }
         return true;
       },
       intersectsTriangle: (tri: ExtendedTriangle, triIndex: number) => {
         let d: number;
-        if (!n) {
+        if (planes.length === 0) {
           tri.closestPointToPoint(pl, tmp);
           d = tmp.distanceTo(pl);
         } else {
-          d = closestOnClippedTriangle(tri, n, offset, pl, tmp);
+          d = closestOnClippedTriangle(tri, planes, pl, tmp);
         }
         if (d < best) {
           best = d;
@@ -116,49 +128,62 @@ export class Surface {
   }
 }
 
-const _poly: Vector3[] = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+const _polyA: Vector3[] = Array.from({ length: MAX_VERTS }, () => new Vector3());
+const _polyB: Vector3[] = Array.from({ length: MAX_VERTS }, () => new Vector3());
+const _side = new Float64Array(MAX_VERTS);
 const _tri = new Triangle();
 const _line = new Line3();
 const _tmp = new Vector3();
 
 /**
- * Närmaste punkt på den del av triangeln som uppfyller q · n >= offset.
- * Returnerar Infinity om ingen del av triangeln ligger i halvrummet.
+ * Närmaste punkt på den del av triangeln som ligger innanför alla planen.
+ * Returnerar Infinity om ingen del av triangeln gör det.
  */
-function closestOnClippedTriangle(tri: Triangle, n: Vector3, offset: number, p: Vector3, target: Vector3): number {
-  const sa = tri.a.dot(n) - offset;
-  const sb = tri.b.dot(n) - offset;
-  const sc = tri.c.dot(n) - offset;
-  if (sa >= 0 && sb >= 0 && sc >= 0) {
+function closestOnClippedTriangle(tri: Triangle, planes: Plane[], p: Vector3, target: Vector3): number {
+  let inside = true;
+  for (const pn of planes) {
+    const sa = tri.a.dot(pn.n) - pn.offset;
+    const sb = tri.b.dot(pn.n) - pn.offset;
+    const sc = tri.c.dot(pn.n) - pn.offset;
+    if (sa < 0 && sb < 0 && sc < 0) return Infinity;
+    if (sa < 0 || sb < 0 || sc < 0) inside = false;
+  }
+  if (inside) {
     tri.closestPointToPoint(p, target);
     return target.distanceTo(p);
   }
-  if (sa < 0 && sb < 0 && sc < 0) return Infinity;
 
-  // Sutherland-Hodgman mot ett plan ger högst fyra hörn.
-  const verts = [tri.a, tri.b, tri.c];
-  const sides = [sa, sb, sc];
-  let count = 0;
-  for (let i = 0; i < 3; i++) {
-    const cur = verts[i];
-    const nxt = verts[(i + 1) % 3];
-    const s0 = sides[i];
-    const s1 = sides[(i + 1) % 3];
-    if (s0 >= 0) _poly[count++].copy(cur);
-    if (s0 >= 0 !== s1 >= 0) {
-      const t = s0 / (s0 - s1);
-      _poly[count++].copy(cur).lerp(nxt, t);
+  // Sutherland-Hodgman mot ett plan i taget; varje plan kan ge högst ett hörn till.
+  let src = _polyA;
+  let dst = _polyB;
+  src[0].copy(tri.a);
+  src[1].copy(tri.b);
+  src[2].copy(tri.c);
+  let count = 3;
+  for (const pn of planes) {
+    for (let i = 0; i < count; i++) _side[i] = src[i].dot(pn.n) - pn.offset;
+    let out = 0;
+    for (let i = 0; i < count; i++) {
+      const j = (i + 1) % count;
+      const s0 = _side[i];
+      const s1 = _side[j];
+      if (s0 >= 0) dst[out++].copy(src[i]);
+      if (s0 >= 0 !== s1 >= 0) dst[out++].copy(src[i]).lerp(src[j], s0 / (s0 - s1));
     }
+    if (out === 0) return Infinity;
+    count = out;
+    const swap = src;
+    src = dst;
+    dst = swap;
   }
-  if (count === 0) return Infinity;
 
-  let bestSq = Infinity;
   if (count === 1) {
-    target.copy(_poly[0]);
+    target.copy(src[0]);
     return target.distanceTo(p);
   }
+  let bestSq = Infinity;
   for (let i = 1; i + 1 < count; i++) {
-    _tri.set(_poly[0], _poly[i], _poly[i + 1]);
+    _tri.set(src[0], src[i], src[i + 1]);
     if (_tri.getArea() > 1e-14) {
       _tri.closestPointToPoint(p, _tmp);
       const d = _tmp.distanceToSquared(p);
@@ -169,8 +194,8 @@ function closestOnClippedTriangle(tri: Triangle, n: Vector3, offset: number, p: 
     }
   }
   for (let i = 0; i < count; i++) {
-    const a = _poly[i];
-    const b = _poly[(i + 1) % count];
+    const a = src[i];
+    const b = src[(i + 1) % count];
     if (a.distanceToSquared(b) < 1e-20) {
       const d = a.distanceToSquared(p);
       if (d < bestSq) {

@@ -283,7 +283,7 @@ function renderFileStatus(): void {
 
 // ---------- Inställningar ----------
 
-const optIds = ["opt-interval", "opt-mode", "opt-start", "opt-fine", "opt-min", "opt-max", "opt-corr", "opt-method"];
+const optIds = ["opt-interval", "opt-mode", "opt-start", "opt-free", "opt-fine", "opt-min", "opt-max", "opt-corr", "opt-method"];
 for (const id of optIds) $(id).addEventListener("change", () => recompute());
 
 function readOptions(): BurdenOptions {
@@ -296,6 +296,7 @@ function readOptions(): BurdenOptions {
     interval: Math.max(0.1, num("opt-interval", 1)),
     mode: $<HTMLSelectElement>("opt-mode").value === "point" ? "point" : "stick",
     startDepth: Math.max(0, num("opt-start", 1)),
+    free3dFromDepth: Math.max(0, num("opt-free", 0)),
     fineStep: Math.min(0.5, Math.max(0.01, num("opt-fine", 0.05))),
     minBurden: num("opt-min", 1.5),
     maxBurden: num("opt-max", 3.5),
@@ -916,7 +917,7 @@ function buildShareBundle(salva: { site: string; date: string; note: string }): 
     style,
     salva,
     plan: buildSharePlan(),
-    rule: `Rött < ${fmt(state.opts.minBurden, 1)} m, blått > ${fmt(state.opts.maxBurden, 1)} m, från ${fmt(state.opts.startDepth, 1)} m djup`,
+    rule: `Rött < ${fmt(state.opts.minBurden, 1)} m, blått > ${fmt(state.opts.maxBurden, 1)} m, från ${fmt(state.opts.startDepth, 1)} m djup${state.opts.free3dFromDepth > 0 ? `, fri 3D från ${fmt(state.opts.free3dFromDepth, 1)} m` : ""}`,
     holes,
   };
 }

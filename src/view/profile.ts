@@ -274,7 +274,7 @@ export function holeInfoText(r: HoleResult, bearing = holeMeanBearing(r)): strin
 
 function footerText(r: HoleResult, opts: BurdenOptions, compact: boolean): string {
   const bottom = r.path.points[r.path.points.length - 1][2];
-  const rule = `Rött &lt; ${fmt(opts.minBurden, 1)} m, blått &gt; ${fmt(opts.maxBurden, 1)} m, från ${fmt(opts.startDepth, 1)} m djup`;
+  const rule = `Rött &lt; ${fmt(opts.minBurden, 1)} m, blått &gt; ${fmt(opts.maxBurden, 1)} m, från ${fmt(opts.startDepth, 1)} m djup${opts.free3dFromDepth > 0 ? `, fri 3D från ${fmt(opts.free3dFromDepth, 1)} m` : ""}`;
   if (compact) return `Påhugg +${fmt(r.path.collar[2], 1)} · Botten +${fmt(bottom, 1)} · ${rule}`;
   return `Påhugg +${fmt(r.path.collar[2], 2)}   ·   Botten +${fmt(bottom, 2)}   ·   ${rule}`;
 }

@@ -56,10 +56,15 @@ describe.skipIf(!has)("Torphyttan exempelfiler", () => {
     // Jämfört med den fristående kontrollen i Python (närmaste hörnpunkt, dvs en övre gräns).
     expect(at(4).burden!).toBeGreaterThan(2.4);
     expect(at(4).burden!).toBeLessThanOrEqual(2.75);
+    // Krönspärren håller överytan borta vid 0,5 m, där det fria minimum är själva påhuggsytan.
     expect(at(0.5).burden!).toBeGreaterThan(at(0.5).free3d!);
-    expect(at(2.5).burden!).toBeGreaterThan(2.0);
+    // Fri 3D: vid 2,5 m är slänten strax under krönet närmast, klart under 1,8 m.
+    expect(at(2.5).burden!).toBeLessThan(1.8);
     expect(at(2.5).free3d!).toBeLessThan(1.8);
     for (const row of r.rows.slice(1)) expect(row.burden!).toBeGreaterThanOrEqual(row.free3d! - 1e-9);
+    // Den äldre planregeln (fri 3D först bortom hålets längd) mäter vågrätt och ger över 2 m där.
+    const plane = computeHole(surface, h20, { interval: 0.5, mode: "point", free3dFromDepth: 100 });
+    expect(plane.rows.find((x) => Math.abs(x.depth - 2.5) < 1e-6)!.burden!).toBeGreaterThan(2.0);
     // Stickläge ger aldrig ett större minimum än punktläget
     const s = computeHole(surface, h20, { interval: 1, mode: "stick", fineStep: 0.05 });
     expect(s.minBurden!).toBeLessThanOrEqual(r.minBurden! + 1e-9);

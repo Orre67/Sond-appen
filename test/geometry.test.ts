@@ -213,3 +213,68 @@ describe("försättning", () => {
     expect(r.rows[1].cls).toBe("high");
   });
 });
+
+describe("fri 3D under gränsen", () => {
+  it("två halvrum samtidigt klipper triangeln mot båda planen", () => {
+    const s = Surface.fromMesh(quads(wall));
+    const hit = s.closestPoint([0, 0, -5], [
+      { normal: [0, 0, -1], tolerance: -2 }, // q.z <= -7
+      { normal: [0, 1, 0], tolerance: -1 }, // q.y >= 1
+    ]);
+    expect(hit).not.toBeNull();
+    expect(hit!.point[0]).toBeCloseTo(2, 6);
+    expect(hit!.point[1]).toBeCloseTo(1, 6);
+    expect(hit!.point[2]).toBeCloseTo(-7, 6);
+    expect(hit!.distance).toBeCloseTo(3, 6);
+  });
+
+  it("hål som borrats förbi slänfoten mäter till foten i stället för att springa ut längs marken", () => {
+    const surface = Surface.fromMesh(quads(topBehind, wall, floor));
+    const hole = { id: "fot", collar: [0, 0, 0] as [number, number, number], stations: [
+      { depth: 0, bearing: 90, inclination: 0 },
+      { depth: 24, bearing: 90, inclination: 0 },
+    ] };
+    const r = computeHole(surface, hole, { interval: 1, mode: "point", minBurden: 1.0, maxBurden: 3.5 });
+    const at = (d: number) => r.rows.find((x) => Math.abs(x.depth - d) < 1e-6)!;
+    expect(at(19).burden).toBeCloseTo(2, 6);
+    // 2 m under foten: närmaste yta är fotens kant (2, 0, -20), snett uppåt.
+    expect(at(22).burden).toBeCloseTo(Math.sqrt(8), 6);
+    expect(at(22).elevationTo).toBeGreaterThan(0);
+    expect(at(24).burden).toBeCloseTo(Math.sqrt(20), 6);
+    // Med gränsen bortom hålets längd gäller planregeln hela vägen och hittar ingenting under foten.
+    const old = computeHole(surface, hole, { interval: 1, mode: "point", free3dFromDepth: 100 });
+    expect(old.rows.find((x) => x.depth === 22)!.burden).toBeNull();
+  });
+
+  it("hålrum i slänten hittas även från provpunkter under det", () => {
+    // Slänten x=2 med ett hålrum 9,5-10,5 m under krönet som går 1,5 m in i berget (till x=0,5).
+    const upper: [number, number, number][] = [[2, -50, 0], [2, 50, 0], [2, 50, -9.5], [2, -50, -9.5]];
+    const roof: [number, number, number][] = [[2, -50, -9.5], [2, 50, -9.5], [0.5, 50, -9.5], [0.5, -50, -9.5]];
+    const back: [number, number, number][] = [[0.5, -50, -9.5], [0.5, 50, -9.5], [0.5, 50, -10.5], [0.5, -50, -10.5]];
+    const sole: [number, number, number][] = [[0.5, -50, -10.5], [0.5, 50, -10.5], [2, 50, -10.5], [2, -50, -10.5]];
+    const lower: [number, number, number][] = [[2, -50, -10.5], [2, 50, -10.5], [2, 50, -20], [2, -50, -20]];
+    const surface = Surface.fromMesh(quads(topBehind, upper, roof, back, sole, lower, floor));
+    const r = computeHole(surface, { id: "rum", collar: [-1, 0, 0], stations: [
+      { depth: 0, bearing: 90, inclination: 0 },
+      { depth: 15, bearing: 90, inclination: 0 },
+    ] }, { interval: 0.5, mode: "point", minBurden: 1.0, maxBurden: 3.5 });
+    const at = (d: number) => r.rows.find((x) => Math.abs(x.depth - d) < 1e-6)!;
+    expect(at(10).burden).toBeCloseTo(1.5, 6);
+    expect(at(8.5).burden).toBeCloseTo(Math.hypot(1.5, 1), 6);
+    expect(at(11.5).burden).toBeCloseTo(Math.hypot(1.5, 1), 6);
+    expect(at(14).burden).toBeCloseTo(3, 6);
+  });
+
+  it("krönspärren hindrar att överytan blir försättning när försättningen är större än djupet", () => {
+    const surface = Surface.fromMesh(quads(topBehind, wall, floor));
+    const r = computeHole(surface, { id: "krön", collar: [-3, 0, 0], stations: [
+      { depth: 0, bearing: 90, inclination: 0 },
+      { depth: 8, bearing: 90, inclination: 0 },
+    ] }, { interval: 1, mode: "point", minBurden: 1.0, maxBurden: 3.5 });
+    for (const row of r.rows.slice(1)) {
+      expect(row.burden).toBeCloseTo(5, 6);
+      expect(row.cls).toBe("high");
+    }
+    expect(r.rows.find((x) => x.depth === 4)!.free3d).toBeCloseTo(4, 6);
+  });
+});

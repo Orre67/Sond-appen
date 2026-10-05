@@ -1,5 +1,5 @@
 import { buildHolePath, pointAt, sampleDepths, type HoleInput, type HolePath, type PathMethod } from "./hole";
-import type { Surface } from "./surface";
+import type { HalfSpace, Surface } from "./surface";
 import { bearingOf, elevationOf, sub, type Vec3 } from "./vec";
 
 export type SamplingMode = "stick" | "point";
@@ -17,10 +17,18 @@ export interface BurdenOptions {
   minBurden: number;
   /** Över detta värde blir punkten blå. */
   maxBurden: number;
-  /** Hur långt bakom det vinkelräta planet (mot påhugget) yta ändå får räknas, meter. */
+  /** Hur långt bakom det vinkelräta planet (mot påhugget) yta ändå får räknas, meter. Gäller ovanför fri-3D-gränsen. */
   backTolerance: number;
   /** Startdjup: stickor och punkter ovanför detta klassas som "skipped" och räknas inte in i minsta försättning. */
   startDepth: number;
+  /**
+   * Från detta djup längs hålet mäts kortaste vägen åt alla håll (hela 3D), bara överytan
+   * kring påhugget hålls borta med krönspärren. Ovanför gäller planet vinkelrätt mot hålet.
+   * 0 = fri 3D hela vägen (standard).
+   */
+  free3dFromDepth: number;
+  /** Krönspärr: under fri-3D-gränsen räknas inte yta högre än påhugget minus denna marginal, meter. */
+  crestMargin: number;
 }
 
 export const DEFAULT_OPTIONS: BurdenOptions = {
@@ -33,6 +41,8 @@ export const DEFAULT_OPTIONS: BurdenOptions = {
   maxBurden: 3.5,
   backTolerance: 0.05,
   startDepth: 1.0,
+  free3dFromDepth: 0,
+  crestMargin: 0.5,
 };
 
 export type BurdenClass = "collar" | "skipped" | "low" | "ok" | "high" | "none";
@@ -59,13 +69,13 @@ export interface BurdenRow {
   point: Vec3;
   /** Hålets riktning vid punkten. */
   dir: Vec3;
-  /** Försättning enligt regeln "mät aldrig bakåt". null om ingen yta hittades. */
+  /** Försättning enligt riktningsregeln (se constraintsAt). null om ingen yta hittades. */
   burden: number | null;
   closest: Vec3 | null;
   /** Bäring och höjdvinkel från provpunkten till närmaste ytpunkt. */
   bearingTo: number | null;
   elevationTo: number | null;
-  /** Fritt minsta 3D-avstånd utan riktningsregel, för tabellen. */
+  /** Fritt minsta 3D-avstånd utan någon regel alls, för tabellen. */
   free3d: number | null;
   freeClosest: Vec3 | null;
   cls: BurdenClass;
@@ -91,6 +101,18 @@ function classOf(burden: number | null, skipped: boolean, opts: BurdenOptions): 
   return "ok";
 }
 
+/**
+ * Riktningsregeln vid ett djup. Ovanför fri-3D-gränsen: planet vinkelrätt mot hålet, bara yta på
+ * den djupare sidan räknas ("mät aldrig bakåt"), så överytan kring påhugget hamnar utanför.
+ * Från gränsen och nedåt: kortaste vägen åt alla håll, även uppåt mot slänfot, hålrum och överhäng.
+ * Det enda som hålls borta är överytan: yta högre än påhugget minus krönmarginalen, annars skulle
+ * det fria minimum peka rakt upp i pallkrönet så snart försättningen är större än djupet.
+ */
+export function constraintsAt(depth: number, point: Vec3, dir: Vec3, collar: Vec3, opts: BurdenOptions): HalfSpace[] {
+  if (depth < opts.free3dFromDepth - 1e-9) return [{ normal: dir, tolerance: opts.backTolerance }];
+  return [{ normal: [0, 0, -1], tolerance: collar[2] - opts.crestMargin - point[2] }];
+}
+
 /** Stickgränser längs hålet: startdjupet är alltid en gräns, stickorna läggs ut åt båda hållen från det. */
 export function stickBoundaries(length: number, interval: number, startDepth: number): number[] {
   if (!(interval > 0)) throw new Error("Måttstickan måste vara längre än 0.");
@@ -103,6 +125,8 @@ export function stickBoundaries(length: number, interval: number, startDepth: nu
 export function computeHole(surface: Surface, hole: HoleInput, options: Partial<BurdenOptions> = {}): HoleResult {
   const opts: BurdenOptions = { ...DEFAULT_OPTIONS, ...options };
   const path = buildHolePath(hole, { method: opts.method, bearingCorrection: opts.bearingCorrection });
+  const measure = (depth: number, point: Vec3, dir: Vec3) =>
+    surface.closestPoint(point, constraintsAt(depth, point, dir, path.collar, opts));
 
   // Täta provpunkter
   const fine: FineSample[] = [];
@@ -113,7 +137,7 @@ export function computeHole(surface: Surface, hole: HoleInput, options: Partial<
   if (path.length - fineDepths[fineDepths.length - 1] > 1e-6) fineDepths.push(path.length);
   for (const d of fineDepths) {
     const { point, dir } = pointAt(path, d);
-    const hit = surface.closestPoint(point, { normal: dir, tolerance: opts.backTolerance });
+    const hit = measure(d, point, dir);
     fine.push({ depth: d, point, dir, burden: hit ? hit.distance : null, closest: hit ? hit.point : null });
   }
 
@@ -151,7 +175,7 @@ export function computeHole(surface: Surface, hole: HoleInput, options: Partial<
     for (const s of sampleDepths(path, opts.interval, false)) {
       if (s.depth <= 1e-9) continue;
       const { point, dir } = pointAt(path, s.depth);
-      const hit = surface.closestPoint(point, { normal: dir, tolerance: opts.backTolerance });
+      const hit = measure(s.depth, point, dir);
       const skipped = s.depth < opts.startDepth - 1e-9;
       rows.push(makeRow(s.depth, s.depth, s.depth, point, dir, hit ? hit.distance : null, hit ? hit.point : null, classOf(hit ? hit.distance : null, skipped, opts), s.isBottom));
     }
