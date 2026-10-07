@@ -1,6 +1,6 @@
 import { buildHolePath, pointAt, sampleDepths, type HoleInput, type HolePath, type PathMethod } from "./hole";
 import type { HalfSpace, Surface } from "./surface";
-import { bearingOf, elevationOf, sub, type Vec3 } from "./vec";
+import { bearingOf, dot, elevationOf, sub, type Vec3 } from "./vec";
 
 export type SamplingMode = "stick" | "point";
 
@@ -19,7 +19,11 @@ export interface BurdenOptions {
   maxBurden: number;
   /** Hur långt bakom det vinkelräta planet (mot påhugget) yta ändå får räknas, meter. Gäller ovanför fri-3D-gränsen. */
   backTolerance: number;
-  /** Startdjup: stickor och punkter ovanför detta klassas som "skipped" och räknas inte in i minsta försättning. */
+  /**
+   * Startdjup: stickor och punkter ovanför detta klassas som "skipped" och räknas inte in i minsta
+   * försättning. Dessutom läggs startplanet här, vinkelrätt mot hålet: yta ovanför det (mot påhugget)
+   * räknas aldrig som fri yta, från någon provpunkt. Det är förladdningens område.
+   */
   startDepth: number;
   /**
    * Från detta djup längs hålet mäts kortaste vägen åt alla håll (hela 3D), bara överytan
@@ -103,16 +107,32 @@ function classOf(burden: number | null, skipped: boolean, opts: BurdenOptions): 
   return "ok";
 }
 
+/** Startplanet: genom hålets punkt på startdjupet, vinkelrätt mot hålet, normalen pekar ned i hålet. */
+export interface StartPlane {
+  point: Vec3;
+  normal: Vec3;
+}
+
+export function startPlaneOf(path: HolePath, opts: BurdenOptions): StartPlane {
+  const { point, dir } = pointAt(path, opts.startDepth);
+  return { point, normal: dir };
+}
+
 /**
- * Riktningsregeln vid ett djup. Ovanför fri-3D-gränsen: planet vinkelrätt mot hålet, bara yta på
- * den djupare sidan räknas ("mät aldrig bakåt"), så överytan kring påhugget hamnar utanför.
- * Från gränsen och nedåt: kortaste vägen åt alla håll, även uppåt mot slänfot, hålrum och överhäng.
- * Det enda som hålls borta är överytan: yta högre än påhugget minus krönmarginalen, annars skulle
- * det fria minimum peka rakt upp i pallkrönet så snart försättningen är större än djupet.
+ * Riktningsregeln vid ett djup. Ovanför fri-3D-gränsen (om en sådan satts): planet vinkelrätt mot
+ * hålet genom provpunkten, bara yta på den djupare sidan räknas ("mät aldrig bakåt").
+ * Annars kortaste vägen åt alla håll, även uppåt mot slänfot, hålrum och överhäng, med två spärrar:
+ * krönspärren, yta högre än påhugget minus krönmarginalen räknas aldrig (annars skulle minimum peka
+ * rakt upp i pallkrönet så snart försättningen är större än djupet), och startplanet, yta ovanför
+ * planet vinkelrätt mot hålet på startdjupet räknas aldrig (krönkanten och svackan runt hålets topp,
+ * som hör till förladdningen). Startplanet följer hålet, krönspärren tar överytan längre ut.
  */
-export function constraintsAt(depth: number, point: Vec3, dir: Vec3, collar: Vec3, opts: BurdenOptions): HalfSpace[] {
+export function constraintsAt(depth: number, point: Vec3, dir: Vec3, collar: Vec3, start: StartPlane, opts: BurdenOptions): HalfSpace[] {
   if (depth < opts.free3dFromDepth - 1e-9) return [{ normal: dir, tolerance: opts.backTolerance }];
-  return [{ normal: [0, 0, -1], tolerance: collar[2] - opts.crestMargin - point[2] }];
+  return [
+    { normal: [0, 0, -1], tolerance: collar[2] - opts.crestMargin - point[2] },
+    { normal: start.normal, tolerance: dot(sub(point, start.point), start.normal) },
+  ];
 }
 
 /** Stickgränser längs hålet: startdjupet är alltid en gräns, stickorna läggs ut åt båda hållen från det. */
@@ -127,8 +147,9 @@ export function stickBoundaries(length: number, interval: number, startDepth: nu
 export function computeHole(surface: Surface, hole: HoleInput, options: Partial<BurdenOptions> = {}): HoleResult {
   const opts: BurdenOptions = { ...DEFAULT_OPTIONS, ...options };
   const path = buildHolePath(hole, { method: opts.method, bearingCorrection: opts.bearingCorrection });
+  const start = startPlaneOf(path, opts);
   const measure = (depth: number, point: Vec3, dir: Vec3) =>
-    surface.closestPoint(point, constraintsAt(depth, point, dir, path.collar, opts));
+    surface.closestPoint(point, constraintsAt(depth, point, dir, path.collar, start, opts));
 
   // Täta provpunkter
   const fine: FineSample[] = [];

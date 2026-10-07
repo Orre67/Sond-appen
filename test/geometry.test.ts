@@ -201,7 +201,11 @@ describe("försättning", () => {
     expect(sticks.map((s) => [s.stickStart, s.stickEnd])).toEqual([[0, 0.5], [0.5, 1.5], [1.5, 2.5], [2.5, 3.5], [3.5, 4.2]]);
     expect(sticks[1].cls).toBe("skipped");
     expect(sticks[2].cls).not.toBe("skipped");
-    for (const s of sticks) expect(s.burden).toBeCloseTo(2, 6);
+    // Under startdjupet gäller väggen rakt fram. Ovanför ligger provpunkterna över startplanet och mäter snett ned till väggen under det.
+    for (const s of sticks) {
+      if (s.cls === "skipped") expect(s.burden!).toBeGreaterThanOrEqual(2 - 1e-9);
+      else expect(s.burden).toBeCloseTo(2, 6);
+    }
   });
 
   it("stort värde blir blått", () => {
@@ -276,5 +280,48 @@ describe("fri 3D under gränsen", () => {
       expect(row.cls).toBe("high");
     }
     expect(r.rows.find((x) => x.depth === 4)!.free3d).toBeCloseTo(4, 6);
+  });
+});
+
+describe("startplanet", () => {
+  // Slänten x=2, men de översta 0,8 m står en klack ut till x=1: krönkanten nära hålets topp.
+  const ledgeTop: [number, number, number][] = [[1, -50, 0], [1, 50, 0], [1, 50, -0.8], [1, -50, -0.8]];
+  const ledgeSole: [number, number, number][] = [[1, -50, -0.8], [1, 50, -0.8], [2, 50, -0.8], [2, -50, -0.8]];
+  const wallBelow: [number, number, number][] = [[2, -50, -0.8], [2, 50, -0.8], [2, 50, -20], [2, -50, -20]];
+  const topToLedge: [number, number, number][] = [[-50, -50, 0], [1, -50, 0], [1, 50, 0], [-50, 50, 0]];
+  const surface = Surface.fromMesh(quads(topToLedge, ledgeTop, ledgeSole, wallBelow, floor));
+  const hole = { id: "klack", collar: [0, 0, 0] as [number, number, number], stations: [
+    { depth: 0, bearing: 90, inclination: 0 },
+    { depth: 6, bearing: 90, inclination: 0 },
+  ] };
+
+  it("yta ovanför planet på startdjupet räknas inte, så klacken försvinner och slänten under gäller", () => {
+    const r = computeHole(surface, hole, { interval: 1, mode: "point", startDepth: 1, minBurden: 1.0, maxBurden: 3.5 });
+    const at = (d: number) => r.rows.find((x) => Math.abs(x.depth - d) < 1e-6)!;
+    // Utan startplanet vore klackens underkant (1, 0, -0.8) närmast från 2 m: 1,56 m.
+    expect(at(2).free3d).toBeCloseTo(Math.hypot(1, 1.2), 6);
+    expect(at(2).burden).toBeCloseTo(2, 6);
+    expect(at(1).burden).toBeCloseTo(2, 6);
+    expect(at(5).burden).toBeCloseTo(2, 6);
+  });
+
+  it("med startdjupet ovanför klacken räknas den", () => {
+    const r = computeHole(surface, hole, { interval: 1, mode: "point", startDepth: 0.3, crestMargin: 0.2, minBurden: 1.0, maxBurden: 3.5 });
+    const at = (d: number) => r.rows.find((x) => Math.abs(x.depth - d) < 1e-6)!;
+    expect(at(2).burden).toBeCloseTo(Math.hypot(1, 1.2), 6);
+  });
+
+  it("planet lutar med hålet: för ett hål mot slänten stiger det mot slänten", () => {
+    // Hål 14° mot slänten: planet på 1 m stiger med tan 14° per meter mot slänten, så klackens
+    // underkant på z = -0,8 hamnar under planet ungefär 0,9 m ut och räknas igen.
+    const r = computeHole(surface, { id: "lut", collar: [-1, 0, 0], stations: [
+      { depth: 0, bearing: 90, inclination: 14 },
+      { depth: 6, bearing: 90, inclination: 14 },
+    ] }, { interval: 1, mode: "point", startDepth: 1, minBurden: 1.0, maxBurden: 3.5 });
+    const at = (d: number) => r.rows.find((x) => Math.abs(x.depth - d) < 1e-6)!;
+    const row = at(2);
+    expect(row.closest![0]).toBeCloseTo(1, 6);
+    expect(row.closest![2]).toBeCloseTo(-0.8, 6);
+    expect(row.burden!).toBeLessThan(at(2).free3d! + 1e-9);
   });
 });

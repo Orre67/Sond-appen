@@ -457,6 +457,22 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
     }
   }
 
+  // Startplanet: yta ovanför den här linjen räknas inte, den hör till förladdningen.
+  if (opts.free3dFromDepth <= 1e-9) {
+    const sp = pointAt(r.path, opts.startDepth);
+    const p0 = projectToSection(frame, sp.point);
+    const ds = sp.dir[0] * frame.u[0] + sp.dir[1] * frame.u[1];
+    const dz = sp.dir[2];
+    // Vinkelrätt mot hålet i snittet; ps > 0 eftersom hålet går nedåt.
+    const ps = -dz;
+    const pz = ds;
+    const tA = (L.sMin - p0.s) / ps;
+    const tB = (sMax - p0.s) / ps;
+    parts.push(
+      `<line x1="${f1(X(p0.s + tA * ps))}" y1="${f1(Y(p0.z + tA * pz))}" x2="${f1(X(p0.s + tB * ps))}" y2="${f1(Y(p0.z + tB * pz))}" stroke="#9a9a9a" stroke-width="1.2" stroke-dasharray="6 5" opacity="0.8"/>`,
+    );
+  }
+
   // Hålbanan utan automatisk bäringskorrektion, som jämförelse
   if (r.ghost) {
     const gp = r.ghost.points.map((p) => projectToSection(frame, p));

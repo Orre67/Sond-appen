@@ -130,7 +130,7 @@ npm run calc -- --surface yta.obj --points startpunkter.txt --dm4 fil1.dm4 fil2.
 | `--fine` | Internt söksteg längs hålet, styr även ytspåret, m | 0.05 |
 | `--min` | Under detta blir punkten röd, m | 1.5 |
 | `--max` | Över detta blir punkten blå, m | 3.5 |
-| `--start` | Startdjup: punkter grundare än detta visas som "skipped" och räknas inte in i minsta försättning, m | 1 |
+| `--start` | Startdjup: punkter grundare än detta visas som "skipped" och räknas inte in i minsta försättning. Här läggs också startplanet vinkelrätt mot hålet, ingen yta ovanför det räknas, m | 1 |
 | `--free` | Fri 3D från djup: ovanför detta djup används i stället planet vinkelrätt mot hålet (äldre regel). 0 = fri 3D hela vägen, m | 0 |
 | `--crest` | Krönmarginal: yta högre än påhugget minus detta räknas aldrig som fri yta, m | 0.5 |
 | `--correction` | Bäringskorrektion som läggs på alla mätningar, grader | 0 |
@@ -166,12 +166,15 @@ Linjen ritas från den punkten. I punktläge visas i stället värdet i varje pu
 
 **Riktning.** Försättningen är kortaste vägen i hela 3D från provpunkten till ytan, åt alla håll,
 även uppåt: slänfoten under ett hål som borrats förbi den, och hålrum eller överhäng ovanför
-provpunkten, räknas. Det enda som hålls borta är överytan: yta högre än påhugget minus
+provpunkten, räknas. Två saker hålls borta. Krönspärren: yta högre än påhugget minus
 krönmarginalen (0,5 m) räknas aldrig, annars skulle minimum peka rakt upp i pallkrönet så snart
-försättningen är större än djupet. Med "fri 3D från djup" större än 0 används ovanför det djupet
-i stället den äldre regeln: ett plan vinkelrätt mot hålet, bara yta på den djupare sidan räknas,
-med 5 cm tolerans. Det fria 3D-minimum helt utan regel finns med som egen kolumn i tabellen
-och CSV-filen.
+försättningen är större än djupet. Startplanet: ett plan vinkelrätt mot hålet på startdjupet,
+yta ovanför det (mot påhugget) räknas aldrig, från någon provpunkt. Det tar krönkanten och en
+svacka runt hålets topp, som hör till förladdningen, och följer hålet i stället för påhuggets höjd.
+Planet ritas som en grå streckad linje i profilen. Med "fri 3D från djup" större än 0 används
+ovanför det djupet i stället den äldre regeln: ett plan vinkelrätt mot hålet genom varje provpunkt,
+bara yta på den djupare sidan räknas, med 5 cm tolerans. Det fria 3D-minimum helt utan regel
+finns med som egen kolumn i tabellen och CSV-filen.
 
 Hålbanan byggs med medelvinkelmetoden: mellan två stationer används medelriktningen av
 deras pilar i rummet, så att bäring 359 och 1 ger 0 och inte 180. Tangentmetoden finns som val.
