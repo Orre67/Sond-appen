@@ -89,13 +89,17 @@ export function sectionSegments(surface: Surface, f: SectionFrame, win: SectionW
   return Float64Array.from(out);
 }
 
-/** Hålets huvudbäring: från påhugg till botten, eller mätningarnas medelriktning för lodräta hål. */
-export function holeMeanBearing(r: HoleResult): number {
+/** Hålets egen bäring: från påhugg till botten. null för ett lodrätt hål. */
+export function holeBearing(r: HoleResult): number | null {
   const path = r.path;
   const bottom = path.points[path.points.length - 1];
   const dE = bottom[0] - path.collar[0];
   const dN = bottom[1] - path.collar[1];
-  if (Math.hypot(dE, dN) > 0.3) return bearingOf(dE, dN);
+  return Math.hypot(dE, dN) > 0.3 ? bearingOf(dE, dN) : null;
+}
+
+/** Försättningens bäring: medelriktningen från provpunkterna till deras närmaste ytpunkter. null utan mätningar. */
+export function burdenBearing(r: HoleResult): number | null {
   let x = 0;
   let y = 0;
   for (const row of r.rows) {
@@ -107,8 +111,29 @@ export function holeMeanBearing(r: HoleResult): number {
       y += v[1] / h;
     }
   }
-  if (Math.hypot(x, y) > 1e-6) return bearingOf(x, y);
-  return 0;
+  return Math.hypot(x, y) > 1e-6 ? bearingOf(x, y) : null;
+}
+
+/** Minsta vinkeln mellan två bäringar, 0 till 180 grader. */
+export function bearingDifference(a: number, b: number): number {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/** Snittet får vrida sig från hålets bäring när försättningen avviker mer än så här, grader. */
+export const SECTION_TURN_LIMIT = 45;
+
+/**
+ * Snittets bäring: hålets egen, utom när försättningen pekar mer än 45° åt ett annat håll,
+ * till exempel en kant i sidled. Då vrids snittet mot försättningen så att linjerna och
+ * ytkonturen visar det som mäts, och hålets lutning syns i vyn framifrån i stället.
+ */
+export function sectionBearing(r: HoleResult): number {
+  const hole = holeBearing(r);
+  const burden = burdenBearing(r);
+  if (hole === null) return burden ?? 0;
+  if (burden === null) return hole;
+  return bearingDifference(hole, burden) > SECTION_TURN_LIMIT ? burden : hole;
 }
 
 /** Hålets medellutning från lodlinjen i grader, från påhugg till botten. */

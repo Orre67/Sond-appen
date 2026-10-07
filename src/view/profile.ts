@@ -1,8 +1,10 @@
 import type { BurdenOptions, HoleResult } from "../geom/burden";
 import { pointAt } from "../geom/hole";
 import {
-  holeMeanBearing,
+  bearingDifference,
+  holeBearing,
   holeMeanInclination,
+  sectionBearing,
   makeFrame,
   projectToSection,
   sectionSegments,
@@ -141,7 +143,7 @@ export function lineEnd(point: Vec3, closest: Vec3, burden: number, cap: number)
 
 export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partial<ProfileStyle> = {}): ProfileExtents {
   const st = { ...DEFAULT_PROFILE_STYLE, ...style };
-  const bearing = holeMeanBearing(r);
+  const bearing = sectionBearing(r);
   const frame = makeFrame(r.path.collar, bearing);
   const drawn = r.rows.filter((x) => x.cls !== "collar" && (st.showSkipped || x.cls !== "skipped"));
   const cap = lineCap(opts, st);
@@ -266,7 +268,9 @@ function headerLines(r: HoleResult, opts: BurdenOptions, bearing: number, compac
   const minText = r.minBurden !== null ? `Minsta försättning ${fmt(r.minBurden, 2)} m på ${fmt(r.minBurdenDepth, 1)} m` : "Ingen yta hittad";
   if (compact) return [holeInfoText(r, bearing, opts.bearingCorrection), minText];
   const corrText = Math.abs(opts.bearingCorrection) > 1e-9 ? [`Bäringskorrektion ${signedDeg(opts.bearingCorrection)}`] : [];
-  return [[`Längd ${fmt(r.path.length, 1)} m`, `Bäring ${fmt(bearing, 0)}°`, `Lutning ${fmt(incl, 0)}° från lod`, ...corrText, modeText, minText].join("   ·   ")];
+  const own = holeBearing(r) ?? bearing;
+  const turned = bearingDifference(own, bearing) > 0.5 ? [`Snitt mot ${fmt(bearing, 0)}°`] : [];
+  return [[`Längd ${fmt(r.path.length, 1)} m`, `Bäring ${fmt(own, 0)}°`, `Lutning ${fmt(incl, 0)}° från lod`, ...turned, ...corrText, modeText, minText].join("   ·   ")];
 }
 
 /** Vinkel med tecken, t.ex. +5,9°. */
@@ -274,10 +278,16 @@ export function signedDeg(v: number): string {
   return `${v < 0 ? "−" : "+"}${fmt(Math.abs(v), 1)}°`;
 }
 
-/** Kort beskrivning av hålet för telefonsidans rubrik. Bäringen är den korrigerade; korrektionen anges när den inte är noll. */
-export function holeInfoText(r: HoleResult, bearing = holeMeanBearing(r), correction = 0): string {
-  const base = `Längd ${fmt(r.path.length, 1)} m · Bäring ${fmt(bearing, 0)}° · Lutning ${fmt(holeMeanInclination(r), 0)}°`;
-  return Math.abs(correction) > 1e-9 ? `${base} · Bäringskorr. ${signedDeg(correction)}` : base;
+/**
+ * Kort beskrivning av hålet för telefonsidans rubrik. Bäringen är hålets egen, korrigerad;
+ * snittets bäring anges när snittet vridits mot försättningen, korrektionen när den inte är noll.
+ */
+export function holeInfoText(r: HoleResult, bearing = sectionBearing(r), correction = 0): string {
+  const own = holeBearing(r) ?? bearing;
+  let text = `Längd ${fmt(r.path.length, 1)} m · Bäring ${fmt(own, 0)}° · Lutning ${fmt(holeMeanInclination(r), 0)}°`;
+  if (bearingDifference(own, bearing) > 0.5) text += ` · Snitt mot ${fmt(bearing, 0)}°`;
+  if (Math.abs(correction) > 1e-9) text += ` · Bäringskorr. ${signedDeg(correction)}`;
+  return text;
 }
 
 function footerText(r: HoleResult, opts: BurdenOptions, compact: boolean): string {
@@ -425,6 +435,19 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
     }
   }
 
+  // Mått som slutar i samma ytpunkt bildar ett kluster: en gemensam linje och en gemensam siffra, den minsta.
+  const labelItems = rp.filter((x) => x.q && x.row.burden !== null && x.row.cls !== "skipped");
+  const clusters: (typeof labelItems)[] = [];
+  for (const x of labelItems) {
+    const near =
+      st.mergeLabelsWithin > 0
+        ? clusters.find((cl) => cl.some((y) => distance(y.row.closest!, x.row.closest!) <= st.mergeLabelsWithin))
+        : undefined;
+    if (near) near.push(x);
+    else clusters.push([x]);
+  }
+  const representative = new Set(clusters.map((cl) => cl.reduce((a, b) => (b.row.burden! < a.row.burden! ? b : a))));
+
   // Försättningslinjer
   for (const x of rp) {
     if (!x.q || x.row.burden === null) continue;
@@ -436,6 +459,8 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
       );
       continue;
     }
+    // Stickor som mäter till samma ytpunkt som en kortare sticka behåller band och färg men ritar ingen egen linje.
+    if (!representative.has(x)) continue;
     const x1 = X(x.p.s);
     const y1 = Y(x.p.z);
     const x2 = X(x.q.s);
@@ -502,17 +527,7 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
     }
   }
 
-  // Siffror vid ytan. Mått som slutar i samma ytpunkt får en gemensam siffra, den minsta.
-  const labelItems = rp.filter((x) => x.q && x.row.burden !== null && x.row.cls !== "skipped");
-  const clusters: (typeof labelItems)[] = [];
-  for (const x of labelItems) {
-    const near =
-      st.mergeLabelsWithin > 0
-        ? clusters.find((cl) => cl.some((y) => distance(y.row.closest!, x.row.closest!) <= st.mergeLabelsWithin))
-        : undefined;
-    if (near) near.push(x);
-    else clusters.push([x]);
-  }
+  // Siffror vid ytan, en per kluster.
   const labels: { x: number; y0: number; y: number; text: string; color: string }[] = [];
   for (const cl of clusters) {
     const best = cl.reduce((a, b) => (b.row.burden! < a.row.burden! ? b : a));

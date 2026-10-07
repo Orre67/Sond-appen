@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { computeHole, DEFAULT_OPTIONS } from "../src/geom/burden";
-import { holeMeanBearing, holeMeanInclination, makeFrame, projectToSection, sectionSegments } from "../src/geom/section";
+import { burdenBearing, holeBearing, holeMeanInclination, makeFrame, projectToSection, sectionBearing, sectionSegments } from "../src/geom/section";
 import { Surface } from "../src/geom/surface";
 import type { MeshData } from "../src/io/mesh";
 import { checkCollars } from "../src/core/check";
 import { renderPlanSvg } from "../src/view/plan";
-import { drawProfile, frontLayout, hoverMarkup, renderFrontSvg, renderProfile, renderProfileSvg, sectionWindowFor } from "../src/view/profile";
+import { drawProfile, frontLayout, holeInfoText, hoverMarkup, renderFrontSvg, renderProfile, renderProfileSvg, sectionWindowFor } from "../src/view/profile";
 
 const SIN14 = Math.sin((14 * Math.PI) / 180);
 
@@ -73,14 +73,14 @@ describe("snitt", () => {
       { depth: 0, bearing: 90, inclination: 14 },
       { depth: 10, bearing: 90, inclination: 14 },
     ] }, { interval: 1, mode: "point" });
-    expect(holeMeanBearing(r)).toBeCloseTo(90, 6);
+    expect(sectionBearing(r)).toBeCloseTo(90, 6);
     expect(holeMeanInclination(r)).toBeCloseTo(14, 6);
     const v = computeHole(surface, { id: "v", collar: [0, 0, 0], stations: [
       { depth: 0, bearing: 0, inclination: 0 },
       { depth: 10, bearing: 0, inclination: 0 },
     ] }, { interval: 1, mode: "point" });
     // Lodrätt hål: bäringen tas från mätningarnas riktning, dvs mot väggen i öster.
-    expect(holeMeanBearing(v)).toBeCloseTo(90, 6);
+    expect(sectionBearing(v)).toBeCloseTo(90, 6);
   });
 
   it("profilbild och översikt ger giltig SVG med rätt siffror", () => {
@@ -152,9 +152,47 @@ describe("snitt", () => {
     expect(merged).toEqual(["2,24"]);
     const all = [...renderProfileSvg(re, edgeSurface, edgeOpts, { mergeLabelsWithin: 0 }).matchAll(labelRe)].map((m) => m[1]);
     expect(all.sort()).toEqual(["2,24", "2,83"]);
+    // En linje per ytpunkt: båda måtten slutar i väggens överkant, så bara det kortaste ritar linje.
+    const lineRe = /<line x1="[^"]+" y1="[^"]+" x2="[^"]+" y2="[^"]+" stroke="#[0-9a-f]{6}" stroke-width="2.6" stroke-linecap="round"\/>/g;
+    expect([...renderProfileSvg(re, edgeSurface, edgeOpts).matchAll(lineRe)]).toHaveLength(1);
+    expect([...renderProfileSvg(re, edgeSurface, edgeOpts, { mergeLabelsWithin: 0 }).matchAll(lineRe)]).toHaveLength(2);
 
     const plan = renderPlanSvg([r], opts, surface.bounds, null, "20");
     expect(plan).toContain('data-id="20"');
     expect(plan).toContain("10 m");
+  });
+});
+
+describe("snittets riktning", () => {
+  const top: [number, number, number][] = [[-50, -50, 0], [2, -50, 0], [2, 50, 0], [-50, 50, 0]];
+  const wall: [number, number, number][] = [[2, -50, 0], [2, 50, 0], [2, 50, -20], [2, -50, -20]];
+  const floor: [number, number, number][] = [[2, -50, -20], [2, 50, -20], [60, 50, -20], [60, -50, -20]];
+  const s = Surface.fromMesh(quads(top, wall, floor));
+
+  it("följer hålet när försättningen pekar ungefär dit hålet lutar", () => {
+    const ne = computeHole(s, { id: "ne", collar: [0, 0, 0], stations: [
+      { depth: 0, bearing: 60, inclination: 14 },
+      { depth: 10, bearing: 60, inclination: 14 },
+    ] }, { interval: 1, mode: "point" });
+    expect(holeBearing(ne)).toBeCloseTo(60, 6);
+    expect(burdenBearing(ne)).toBeCloseTo(90, 3);
+    expect(sectionBearing(ne)).toBeCloseTo(60, 6);
+    expect(holeInfoText(ne)).toContain("Bäring 60°");
+    expect(holeInfoText(ne)).not.toContain("Snitt mot");
+  });
+
+  it("vrids mot försättningen när den pekar mer än 45° åt ett annat håll, och rubriken säger det", () => {
+    const north = computeHole(s, { id: "n", collar: [0, 0, 0], stations: [
+      { depth: 0, bearing: 0, inclination: 14 },
+      { depth: 10, bearing: 0, inclination: 14 },
+    ] }, { interval: 1, mode: "point" });
+    expect(holeBearing(north)).toBeCloseTo(0, 6);
+    expect(burdenBearing(north)).toBeCloseTo(90, 3);
+    expect(sectionBearing(north)).toBeCloseTo(90, 3);
+    expect(holeInfoText(north)).toContain("Bäring 0°");
+    expect(holeInfoText(north)).toContain("Snitt mot 90°");
+    // I det vridna snittet pekar måtten åt slänthållet, inte längs hålet.
+    const svg = renderProfileSvg(north, s, { ...DEFAULT_OPTIONS, interval: 1, mode: "point" });
+    expect(svg).toContain("Snitt mot 90°");
   });
 });

@@ -158,6 +158,13 @@ välj DXF-filen och ange samma koordinatsystem som chunken, för Torphyttan SWER
 
 ## Mätregeln
 
+**Snittet.** Profilen är ett lodrätt snitt längs hålets bäring, med slänten till vänster. När
+försättningen pekar mer än 45° åt ett annat håll än hålet, till exempel mot en kant i sidled för ett
+hål som inte står i första raden, vrids snittet mot försättningen så att linjerna och ytkonturen
+visar det som mäts; rubriken anger då "Snitt mot" och hålets lutning syns i vyn framifrån i stället.
+Mått som slutar i samma ytpunkt, inom 20 cm, får en gemensam linje och en gemensam siffra, den
+minsta, medan varje sticka behåller sitt färgade band.
+
 **Måttstickor.** Hålet delas från startdjupet i stickor av vald längd, åt båda hållen så
 att startdjupet alltid är en stickgräns. Hålet söks av i söksteget (0,05 m) och varje sticka
 får det sämsta värdet som hittades inom den. Värdet är därmed en garanti för hela stickan,
