@@ -197,15 +197,14 @@ export function renderPlanSvg(
   // Mått: på skrivbordet fasta meter, på telefonen skärmpixlar gånger meter per pixel
   const S = ex.pixelScale;
   const sz = (pixels: number, meters: number) => (S ? pixels * S : meters);
-  const R = sz(5, 0.55);
-  const traceW = sz(1.5, 0.14);
-  const fontL = sz(12, 1.0);
-  const fontS = sz(10, 0.75);
+  const R = sz(4, 0.32);
+  const traceW = sz(1.2, 0.09);
+  const fontL = sz(11, 0.65);
   // Osynligt klickmål i numreringsläge, så att markören är lätt att träffa utan att bilden belamras.
   const target = (x: number, y: number) => (ex.numbering ? `<circle cx="${f(x)}" cy="${f(y)}" r="${f(sz(9, 1.0))}" fill="transparent" stroke="none"/>` : "");
   // Numret står ovanför påhugget, centrerat och litet, så att en tät rad inte flyter ihop
   const label = (x: number, y: number, text: string) =>
-    `<text x="${f(x)}" y="${f(y - sz(8, 0.9))}" font-size="${f(fontL)}" font-weight="700" text-anchor="middle" fill="${INK}" stroke="#fff" stroke-width="${f(sz(2.5, 0.22))}" paint-order="stroke">${escapeXml(text)}</text>`;
+    `<text x="${f(x)}" y="${f(y - sz(7, 0.55))}" font-size="${f(fontL)}" font-weight="500" text-anchor="middle" fill="${INK}" stroke="#fff" stroke-width="${f(sz(2, 0.16))}" paint-order="stroke">${escapeXml(text)}</text>`;
 
   // Riggens linjer sedda uppifrån, bakom hålen: planen prickad grå, loggen blå.
   const rigLine = (kind: string, l: PlanLine, color: string, dash: string | null) => {
@@ -228,9 +227,9 @@ export function renderPlanSvg(
       })
       .join(" ");
     parts.push(`<polyline points="${trace}" fill="none" stroke="${INK}" stroke-width="${f(traceW)}"/>`);
-    if (sel) parts.push(`<circle cx="${f(k.x)}" cy="${f(k.y)}" r="${f(sz(10, 1.1))}" fill="none" stroke="${INK}" stroke-width="${f(sz(1.5, 0.2))}"/>`);
+    if (sel) parts.push(`<circle cx="${f(k.x)}" cy="${f(k.y)}" r="${f(sz(8, 0.7))}" fill="none" stroke="${INK}" stroke-width="${f(sz(1.5, 0.14))}"/>`);
     parts.push(target(k.x, k.y));
-    parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${INK}" stroke="#fff" stroke-width="${f(sz(1.2, 0.12))}"/>`);
+    parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${INK}" stroke="#fff" stroke-width="${f(sz(1, 0.08))}"/>`);
     parts.push(label(k.x, k.y, r.id));
     parts.push(`</g>`);
   }
@@ -241,11 +240,12 @@ export function renderPlanSvg(
     parts.push(`<g class="plan-point" data-source="${escapeXml(p.sourceId)}" style="cursor:pointer">`);
     parts.push(target(k.x, k.y));
     if (p.id !== null) {
-      parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${MUTED}" stroke="#fff" stroke-width="${f(sz(1.2, 0.12))}"/>`);
+      // Utan sondering: ljus ring med grå kant, som i en borrplan.
+      parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#e3e6ea" stroke="${MUTED}" stroke-width="${f(sz(1.2, 0.1))}"/>`);
       parts.push(label(k.x, k.y, p.id));
     } else {
       // Utan nummer: ihålig markör utan text, originalnamnet belamrar bara bilden.
-      parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#fff" stroke="${INK}" stroke-width="${f(sz(1.8, 0.18))}"/>`);
+      parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#fff" stroke="${INK}" stroke-width="${f(sz(1.4, 0.12))}"/>`);
     }
     parts.push(`</g>`);
   }
