@@ -464,7 +464,7 @@ export class Scene3D {
   }
 
   private pick(e: PointerEvent): void {
-    if (this.pickables.length === 0) return;
+    if (this.pickables.length === 0 && this.sourcePickables.length === 0) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);

@@ -107,8 +107,8 @@ const state = {
 };
 
 const scene = new Scene3D($("scene-container"));
-scene.onSelect = (id) => selectHole(id, true);
-scene.onSelectPoint = (source) => selectPoint(source);
+scene.onSelect = (id) => selectBySource(pickInStack(state.sourceIds.get(id) ?? id), true);
+scene.onSelectPoint = (source) => selectBySource(pickInStack(source), true);
 // Texturen läses in asynkront. Ortofotot och vyerna framifrån som renderats innan dess är svarta, så rita om.
 scene.onTextureLoaded = () => {
   state.planBg = null;
@@ -365,6 +365,30 @@ function restoreRemoved(key: string): void {
     saveRemoved();
     recompute();
   });
+}
+
+/** Hål vars påhugg ligger inom 0,25 m i plan från det givna, som ursprungs-id, i filordning. */
+function stackAt(source: string): string[] {
+  const pts = [...state.applied.numbered, ...state.applied.unnumbered];
+  const me = pts.find((p) => p.sourceId === source);
+  if (!me) return [source];
+  return pts.filter((p) => Math.hypot(p.e - me.e, p.n - me.n) <= 0.25).map((p) => p.sourceId);
+}
+
+/** Klick på en plats med flera hål: första klicket tar det klickade, nästa klick går vidare i stapeln. */
+function pickInStack(clicked: string): string {
+  const stack = stackAt(clicked);
+  if (stack.length < 2) return clicked;
+  const current = state.selectedId ? (state.sourceIds.get(state.selectedId) ?? state.selectedId) : state.selectedSource;
+  const i = current ? stack.indexOf(current) : -1;
+  return i < 0 ? clicked : stack[(i + 1) % stack.length];
+}
+
+/** Markerar ett hål via ursprungs-id: som beräknat hål om det finns, annars som punkt. */
+function selectBySource(source: string, focus3d: boolean): void {
+  const r = state.results.find((x) => (state.sourceIds.get(x.id) ?? x.id) === source);
+  if (r) selectHole(r.id, focus3d);
+  else selectPoint(source);
 }
 
 /** Markerar en startpunkt utan beräknat hål i översikten, så att den kan tas bort. */
@@ -934,8 +958,8 @@ function renderPlan(): void {
         numberPoint(g.dataset.source ?? "");
         return;
       }
-      if (g.classList.contains("plan-hole")) selectHole(g.dataset.id ?? null, false);
-      else selectPoint(g.dataset.source ?? null);
+      const clicked = g.dataset.source ?? g.dataset.id ?? "";
+      if (clicked) selectBySource(pickInStack(clicked), false);
     });
   }
   attachPlanNavigation(svg, frame);
