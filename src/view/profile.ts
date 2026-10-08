@@ -561,7 +561,7 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
   if (own !== null && bearingDifference(own, bearing) > 0.5) {
     const cx = ml + 18;
     const cy = mt + 18;
-    const rad = 8;
+    const rad = 9;
     const a0 = (-150 * Math.PI) / 180;
     const a1 = (120 * Math.PI) / 180;
     const sx = cx + rad * Math.cos(a0);
@@ -573,13 +573,18 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
     const ty = Math.cos(a1);
     const nx = -ty;
     const ny = tx;
-    const head = 4.5;
+    // Fylld pilspets i bågens ände: spetsen en bit förbi änden, basen strax bakom.
+    const headLen = 8;
+    const headW = 5;
+    const tipX = ex + tx * headLen * 0.55;
+    const tipY = ey + ty * headLen * 0.55;
+    const baseX = ex - tx * headLen * 0.45;
+    const baseY = ey - ty * headLen * 0.45;
     parts.push(
-      `<g class="section-turned" fill="none" stroke="#444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+      `<g class="section-turned" fill="none" stroke="#3a3a3a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">` +
         `<title>Snittet är vridet mot ${fmt(bearing, 0)}°, hålets bäring är ${fmt(own, 0)}°</title>` +
         `<path d="M ${f1(sx)} ${f1(sy)} A ${rad} ${rad} 0 1 1 ${f1(ex)} ${f1(ey)}"/>` +
-        `<polyline points="${f1(ex - tx * head + nx * head)},${f1(ey - ty * head + ny * head)} ${f1(ex)},${f1(ey)} ${f1(ex - tx * head - nx * head)},${f1(ey - ty * head - ny * head)}"/>` +
-        `<text x="${f1(cx + rad + 6)}" y="${f1(cy + 4)}" font-size="11" fill="#444" stroke="none">Snitt mot ${fmt(bearing, 0)}°</text>` +
+        `<polygon points="${f1(tipX)},${f1(tipY)} ${f1(baseX + nx * headW)},${f1(baseY + ny * headW)} ${f1(baseX - nx * headW)},${f1(baseY - ny * headW)}" fill="#3a3a3a" stroke-width="1.5"/>` +
         `</g>`,
     );
   }
