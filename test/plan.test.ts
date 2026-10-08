@@ -52,7 +52,7 @@ describe("översikt", () => {
     expect(blastBearingFromLine(0, 0, -7, 7)).toBe(45);
   });
 
-  it("ritar startpunkter utan hål och skjutriktningspil", () => {
+  it("ritar startpunkter utan hål, utan originalnamn och utan pilar eller skalstock", () => {
     const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, {
       bearing: 45,
       points: [
@@ -62,9 +62,11 @@ describe("översikt", () => {
       numbering: true,
     });
     expect(svg).toContain('class="plan-point" data-source="101"');
-    expect(svg).toContain("(101)");
-    expect(svg).toContain("(107)");
-    expect(svg).toContain("Skjutriktning 45°");
+    expect(svg).not.toContain("(101)");
+    expect(svg).not.toContain("(107)");
+    expect(svg).not.toContain("Skjutriktning");
+    expect(svg).not.toContain("10 m");
+    expect(svg).not.toContain("stroke-dasharray=\"3.00 2.00\"");
     expect(svg).toContain('data-bearing="45"');
     expect(svg).toContain('id="plan-overlay"');
     expect(svg).toContain('class="collar"');

@@ -159,7 +159,7 @@ describe("snitt", () => {
 
     const plan = renderPlanSvg([r], opts, surface.bounds, null, "20");
     expect(plan).toContain('data-id="20"');
-    expect(plan).toContain("10 m");
+    expect(plan).not.toContain("10 m");
   });
 });
 

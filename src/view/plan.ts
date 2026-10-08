@@ -1,6 +1,6 @@
 import type { BurdenOptions, HoleResult } from "../geom/burden";
 import type { Bounds } from "../io/mesh";
-import { escapeXml, fmt } from "./format";
+import { escapeXml } from "./format";
 
 export interface PlanBackground {
   /** Data-URL för en bild som täcker bounds sedd uppifrån, norr uppåt. */
@@ -39,10 +39,6 @@ export interface PlanExtras {
    * (telefonen, som zoomar genom att ändra viewBox), annars i fasta meter som på skrivbordet.
    */
   pixelScale: number | null;
-  /** Synlig del av kartan (viewBox) när bilden är zoomad, så att pilar och skalstock hamnar i det man ser. */
-  viewport: { x: number; y: number; w: number; h: number } | null;
-  /** Norrpil och skalstock. Avstängda på telefonen, där de bara flyter löst över bilden. */
-  northAndScale: boolean;
   /** Riggens raka linjer sedda uppifrån: planen prickad grå, loggen blå. */
   rigLines: { plan: PlanLine[]; quality: PlanLine[] };
   /** Streckad ram runt modellens rektangel när ortofoto saknas. Av när ingen modell finns. */
@@ -146,7 +142,6 @@ export function blastBearingFromLine(e0: number, n0: number, e1: number, n1: num
 
 const INK = "#141414";
 const MUTED = "#8a8a8a";
-const DIRECTION_COLOR = "#e08a1e";
 const DEFAULT_EXTRAS: PlanExtras = {
   bearing: null,
   points: [],
@@ -154,8 +149,6 @@ const DEFAULT_EXTRAS: PlanExtras = {
   numbering: false,
   extent: null,
   pixelScale: null,
-  viewport: null,
-  northAndScale: true,
   rigLines: { plan: [], quality: [] },
   modelFrame: true,
 };
@@ -208,13 +201,11 @@ export function renderPlanSvg(
   const traceW = sz(1.5, 0.14);
   const fontL = sz(12, 1.0);
   const fontS = sz(10, 0.75);
-  const target = (x: number, y: number) =>
-    ex.numbering ? `<circle cx="${f(x)}" cy="${f(y)}" r="${f(sz(9, 1.0))}" fill="none" stroke="${MUTED}" stroke-width="${f(sz(1, 0.12))}" stroke-dasharray="${f(sz(3, 0.3))} ${f(sz(2, 0.2))}"/>` : "";
+  // Osynligt klickmål i numreringsläge, så att markören är lätt att träffa utan att bilden belamras.
+  const target = (x: number, y: number) => (ex.numbering ? `<circle cx="${f(x)}" cy="${f(y)}" r="${f(sz(9, 1.0))}" fill="transparent" stroke="none"/>` : "");
   // Numret står ovanför påhugget, centrerat och litet, så att en tät rad inte flyter ihop
   const label = (x: number, y: number, text: string) =>
     `<text x="${f(x)}" y="${f(y - sz(8, 0.9))}" font-size="${f(fontL)}" font-weight="700" text-anchor="middle" fill="${INK}" stroke="#fff" stroke-width="${f(sz(2.5, 0.22))}" paint-order="stroke">${escapeXml(text)}</text>`;
-  const sourceLabel = (x: number, y: number, text: string) =>
-    `<text x="${f(x)}" y="${f(y + sz(15, 1.6))}" font-size="${f(fontS)}" text-anchor="middle" fill="#666" stroke="#fff" stroke-width="${f(sz(2, 0.18))}" paint-order="stroke">(${escapeXml(text)})</text>`;
 
   // Riggens linjer sedda uppifrån, bakom hålen: planen prickad grå, loggen blå.
   const rigLine = (kind: string, l: PlanLine, color: string, dash: string | null) => {
@@ -241,11 +232,10 @@ export function renderPlanSvg(
     parts.push(target(k.x, k.y));
     parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${INK}" stroke="#fff" stroke-width="${f(sz(1.2, 0.12))}"/>`);
     parts.push(label(k.x, k.y, r.id));
-    if (source !== undefined) parts.push(sourceLabel(k.x, k.y, source));
     parts.push(`</g>`);
   }
 
-  // Startpunkter utan beräknat hål: grå markör med nummer (utan sondering), eller ihålig utan nummer
+  // Startpunkter utan beräknat hål: grå markör med nummer (utan sondering), eller ihålig helt utan text
   for (const p of ex.points) {
     const k = P(p.e, p.n);
     parts.push(`<g class="plan-point" data-source="${escapeXml(p.sourceId)}" style="cursor:pointer">`);
@@ -253,50 +243,10 @@ export function renderPlanSvg(
     if (p.id !== null) {
       parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${MUTED}" stroke="#fff" stroke-width="${f(sz(1.2, 0.12))}"/>`);
       parts.push(label(k.x, k.y, p.id));
-      if (p.id !== p.sourceId) parts.push(sourceLabel(k.x, k.y, p.sourceId));
     } else {
+      // Utan nummer: ihålig markör utan text, originalnamnet belamrar bara bilden.
       parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#fff" stroke="${INK}" stroke-width="${f(sz(1.8, 0.18))}"/>`);
-      parts.push(
-        `<text x="${f(k.x)}" y="${f(k.y - sz(8, 0.9))}" font-size="${f(sz(11, 0.85))}" text-anchor="middle" fill="#777" stroke="#fff" stroke-width="${f(sz(2, 0.2))}" paint-order="stroke">(${escapeXml(p.sourceId)})</text>`,
-      );
     }
-    parts.push(`</g>`);
-  }
-
-  // Dekorationerna skalas som pilar och text: en enhet u är en meter på skrivbordet och en pixel på telefonen.
-  // De placeras i den synliga delen av kartan, som är hela kartan om inget annat anges.
-  const u = S ? S : 1;
-  const d = (meters: number) => f(S ? meters * 8 * S : meters);
-  const V = ex.viewport ?? { x: 0, y: 0, w, h };
-
-  // Norrpil, vriden med kartan, med bokstaven upprätt. På telefonen längre från kanten så att den inte klipps.
-  const top = S ? 5 : 3.2;
-  if (ex.northAndScale) {
-    parts.push(`<g transform="translate(${f(V.x + V.w - 3 * 8 * u)},${f(V.y + top * 8 * u)}) rotate(${f(-B)})">`);
-    parts.push(`<line x1="0" y1="${d(2.2)}" x2="0" y2="${d(-1.6)}" stroke="#222" stroke-width="${d(0.25)}"/>`);
-    parts.push(`<polygon points="0,${d(-2.4)} ${d(-0.7)},${d(-0.9)} ${d(0.7)},${d(-0.9)}" fill="#222"/>`);
-    parts.push(`<text x="0" y="${d(-2.9)}" transform="rotate(${f(B)} 0 ${d(-2.9)})" font-size="${d(1.4)}" font-weight="700" text-anchor="middle" fill="#222">N</text>`);
-    parts.push(`</g>`);
-  }
-
-  // Skjutriktning: pil uppåt mitt på överkanten
-  if (ex.bearing !== null) {
-    parts.push(`<g transform="translate(${f(V.x + V.w / 2)},${f(V.y + (top + 0.2) * 8 * u)})">`);
-    parts.push(`<line x1="0" y1="${d(2.4)}" x2="0" y2="${d(-1.4)}" stroke="${DIRECTION_COLOR}" stroke-width="${d(0.35)}"/>`);
-    parts.push(`<polygon points="0,${d(-2.6)} ${d(-0.9)},${d(-0.8)} ${d(0.9)},${d(-0.8)}" fill="${DIRECTION_COLOR}"/>`);
-    parts.push(
-      `<text x="${d(1.4)}" y="${d(0.5)}" font-size="${d(1.4)}" font-weight="700" fill="${DIRECTION_COLOR}" stroke="#fff" stroke-width="${d(0.3)}" paint-order="stroke">Skjutriktning ${fmt(ex.bearing, 0)}°</text>`,
-    );
-    parts.push(`</g>`);
-  }
-
-  // Skalstock: alltid 10 m lång, så den visar skalan även när bilden zoomas
-  if (ex.northAndScale) {
-    parts.push(`<g transform="translate(${f(V.x + 2 * 8 * u)},${f(V.y + V.h - 2 * 8 * u)})">`);
-    parts.push(`<line x1="0" y1="0" x2="10" y2="0" stroke="#222" stroke-width="${d(0.3)}"/>`);
-    parts.push(`<line x1="0" y1="${d(-0.5)}" x2="0" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
-    parts.push(`<line x1="10" y1="${d(-0.5)}" x2="10" y2="${d(0.5)}" stroke="#222" stroke-width="${d(0.2)}"/>`);
-    parts.push(`<text x="5" y="${d(-0.8)}" font-size="${d(1.2)}" text-anchor="middle" fill="#222">10 m</text>`);
     parts.push(`</g>`);
   }
 
