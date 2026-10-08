@@ -7,8 +7,8 @@ import type { Vec3 } from "../geom/vec";
 import { CLASS_COLORS } from "./format";
 
 const HOLE_COLOR = 0x141414;
-const RIG_PLAN_COLOR = 0x9aa3ad;
-const RIG_QUALITY_COLOR = 0x2b6cb0;
+const RIG_PLAN_COLOR = 0xb0b7c0;
+const RIG_QUALITY_COLOR = 0x8a8f99;
 
 /** En rak linje från riggen, E N Z. */
 export interface RigLine {
@@ -187,8 +187,8 @@ export class Scene3D {
     this.frameBounds({ min, max });
   }
 
-  /** Riggens raka linjer: planen tunn och grå, loggen blå. Hål utan sondering får etikett vid loggens eller planens start. */
-  setRigLines(plan: RigLine[], quality: RigLine[], labelled: Set<string>): void {
+  /** Riggens raka linjer: planen tunn och ljusgrå, loggens hål grå cylindrar lika tjocka som de sonderade. Påhugg och etiketter ritas av markörerna och hålen. */
+  setRigLines(plan: RigLine[], quality: RigLine[]): void {
     for (const child of [...this.rigGroup.children]) {
       this.rigGroup.remove(child);
       disposeObject(child);
@@ -208,14 +208,10 @@ export class Scene3D {
       this.rigGroup.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity })));
     };
     addLines(plan, RIG_PLAN_COLOR, 0.85);
-    addLines(quality, RIG_QUALITY_COLOR, 1);
-    const seen = new Set(labelled);
-    for (const l of [...quality, ...plan]) {
-      if (seen.has(l.id)) continue;
-      seen.add(l.id);
-      const label = makeLabel(l.id);
-      label.position.copy(L(l.start)).add(new THREE.Vector3(0, 0, 1.1));
-      this.rigGroup.add(label);
+    // Loggens hål som cylindrar, lika tjocka som de sonderade men grå, så att de två går att jämföra i samma bild.
+    const mat = new THREE.MeshStandardMaterial({ color: RIG_QUALITY_COLOR, roughness: 0.6 });
+    for (const l of quality) {
+      this.rigGroup.add(cylinderBetween(L(l.start), L(l.end), 0.09, mat));
     }
     this.requestRender();
   }

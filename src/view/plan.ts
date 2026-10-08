@@ -13,8 +13,6 @@ export interface PlanPoint {
   sourceId: string;
   e: number;
   n: number;
-  /** Från riggens plan eller logg, inte från startpunktsfilen: kan inte numreras om. */
-  rig?: boolean;
 }
 
 /** En rak linje från riggen sedd uppifrån. */
@@ -250,8 +248,8 @@ export function renderPlanSvg(
   // Startpunkter utan beräknat hål: grå markör med nummer (utan sondering), eller ihålig utan nummer
   for (const p of ex.points) {
     const k = P(p.e, p.n);
-    parts.push(`<g class="plan-point${p.rig ? " plan-rig" : ""}" data-source="${escapeXml(p.sourceId)}" style="cursor:pointer">`);
-    if (!p.rig) parts.push(target(k.x, k.y));
+    parts.push(`<g class="plan-point" data-source="${escapeXml(p.sourceId)}" style="cursor:pointer">`);
+    parts.push(target(k.x, k.y));
     if (p.id !== null) {
       parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${MUTED}" stroke="#fff" stroke-width="${f(sz(1.2, 0.12))}"/>`);
       parts.push(label(k.x, k.y, p.id));

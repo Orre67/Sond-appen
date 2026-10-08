@@ -3,7 +3,7 @@ import { classifyFile, downloadText, parseMeshInWorker } from "./app/files";
 import { toCsv } from "./core/csv";
 import { toDxf } from "./core/dxf";
 import { checkCollars } from "./core/check";
-import { applyRenames, assignNumber, clearNumbers, numberUnnumbered, type Applied, type Renames } from "./core/numbering";
+import { applyRenames, assignNumber, clearNumbers, numberUnnumbered, type Applied, type NamedPoint, type Renames } from "./core/numbering";
 import { linkHoles, rigReferences, rigStartPoints, type RigReference } from "./core/project";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions, type HoleResult, type RigLines } from "./geom/burden";
 import { autoBearingCorrection, describeCorrection, type AutoBearingCorrection } from "./geom/geodesy";
@@ -202,6 +202,13 @@ function loadRigFile(name: string, text: string): void {
   const what = f.kind === "plan" ? "Borrplan (IREDES)" : "Kvalitetslogg (IREDES)";
   const parts = [`${f.holes.length} hål`, f.planName, f.equipment, ...f.warnings].filter((p): p is string => !!p);
   setFile(name, what, "klar", parts.join(" · "));
+  // Utan startpunktsfil hör omnumreringen till riggens plannamn.
+  if (!state.pointsSource) state.renames = loadRenames(renamesSource());
+}
+
+/** Alla startpunkter som kan numreras om: startpunktsfilen och riggens hål som saknas där. */
+function basePoints(): StartPoint[] {
+  return [...state.points, ...rigStartPoints(state.rigRefs, state.points)];
 }
 
 /** Riggens raka linjer för ett hål, när plan eller logg finns. */
@@ -212,12 +219,13 @@ function rigLinesFor(id: string): RigLines | undefined {
   return { plan: line(ref.plan), quality: line(ref.quality) };
 }
 
-/** Riggens linjer av ett slag, för 3D-vyn. */
+/** Riggens linjer av ett slag, för 3D-vyn och översikten, märkta med hålets gällande nummer efter omnumrering. */
 function rigLines(kind: "plan" | "quality"): { id: string; start: Vec3; end: Vec3 }[] {
+  const current = new Map(state.applied.numbered.map((p) => [normalizeId(p.sourceId), p.id]));
   const out: { id: string; start: Vec3; end: Vec3 }[] = [];
   for (const ref of state.rigRefs.values()) {
     const h = ref[kind];
-    if (h) out.push({ id: h.id, start: h.start, end: h.end });
+    if (h) out.push({ id: current.get(normalizeId(h.id)) ?? `(${h.id})`, start: h.start, end: h.end });
   }
   return out;
 }
@@ -228,7 +236,7 @@ function pathOnlyResults(holes: HoleInput[]): HoleResult[] {
   for (const h of holes) {
     try {
       const path = buildHolePath(h, { method: state.opts.method, bearingCorrection: state.opts.bearingCorrection });
-      out.push({ id: h.id, path, rows: [], fine: [], minBurden: null, minBurdenDepth: null, reference: rigLinesFor(h.id) });
+      out.push({ id: h.id, path, rows: [], fine: [], minBurden: null, minBurdenDepth: null, reference: rigLinesFor(state.sourceIds.get(h.id) ?? h.id) });
     } catch {
       // Ogiltig sondering, hoppas över här; felet visas när ytan finns.
     }
@@ -292,6 +300,11 @@ function applyPointsText(text: string, source: string): void {
 const renamesKey = (source: string) => `sond-appen:numrering:${source}`;
 const bearingKey = (mesh: string) => `sond-appen:skjutriktning:${mesh}`;
 
+/** Nyckel för sparad omnumrering: startpunktsfilen, annars riggens plannamn. */
+function renamesSource(): string {
+  return state.pointsSource || [...state.rigFiles.values()][0]?.planName || "";
+}
+
 function loadRenames(source: string): Renames {
   try {
     const raw = localStorage.getItem(renamesKey(source));
@@ -304,8 +317,8 @@ function loadRenames(source: string): Renames {
 
 function saveRenames(): void {
   try {
-    if (state.renames.size === 0) localStorage.removeItem(renamesKey(state.pointsSource));
-    else localStorage.setItem(renamesKey(state.pointsSource), JSON.stringify([...state.renames]));
+    if (state.renames.size === 0) localStorage.removeItem(renamesKey(renamesSource()));
+    else localStorage.setItem(renamesKey(renamesSource()), JSON.stringify([...state.renames]));
   } catch {
     // Ingen lagring tillgänglig
   }
@@ -426,16 +439,16 @@ function recompute(): void {
   state.opts = readOptions();
   renderAutoInfo();
   const profiles = [...state.profiles.values()].flat();
-  state.applied = applyRenames(state.points, state.renames);
+  // Riggens plan och logg matchas mot startpunktsfilens ursprungliga nummer och ger startpunkter för hål som saknas där.
+  // Omnumreringen gäller sedan alla punkter lika, från fil och från rigg.
+  state.rigRefs = rigReferences([...state.rigFiles.values()], state.points);
+  state.applied = applyRenames(basePoints(), state.renames);
   state.sourceIds = new Map(state.applied.numbered.filter((p) => p.sourceId !== p.id).map((p) => [p.id, p.sourceId]));
-  // Riggens plan och logg ger startpunkter för hål som saknar egen startpunkt, och referenslinjer per hål.
-  const txtPoints = state.applied.numbered;
-  state.rigRefs = rigReferences([...state.rigFiles.values()], txtPoints);
-  const rigPoints = rigStartPoints(state.rigRefs, txtPoints);
-  const link = linkHoles([...txtPoints, ...rigPoints], profiles);
+  const link = linkHoles(state.applied.numbered, profiles);
   state.linkWarnings = link.warnings;
-  const txtIds = new Set(txtPoints.map((p) => normalizeId(p.id)));
-  state.unmatchedPoints = link.unmatchedPoints.filter((p) => txtIds.has(normalizeId(p.id))).map((p) => p.id);
+  // Bara startpunktsfilens punkter listas som utan sondering; riggens hål är många och syns i översikten ändå.
+  const txtSources = new Set(state.points.map((p) => normalizeId(p.id)));
+  state.unmatchedPoints = link.unmatchedPoints.filter((p) => txtSources.has(normalizeId((p as NamedPoint).sourceId ?? p.id))).map((p) => p.id);
   state.unmatchedProfiles = link.unmatchedProfiles.map((p) => p.id);
   // Påhugg som inte ligger på ytmodellen avslöjar fel koordinater som ingen filtolkning kan se.
   state.collarWarnings = state.surface ? checkCollars(state.surface, link.holes) : [];
@@ -450,7 +463,7 @@ function recompute(): void {
         if (state.autoCorr && state.autoInfo && Math.abs(state.autoInfo.correction) > 1e-9) {
           r.ghost = buildHolePath(h, { method: state.opts.method, bearingCorrection: state.opts.bearingCorrection - state.autoInfo.correction });
         }
-        r.reference = rigLinesFor(h.id);
+        r.reference = rigLinesFor(state.sourceIds.get(h.id) ?? h.id);
         state.results.push(r);
       } catch (err) {
         state.linkWarnings.push(`Hål ${h.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -471,10 +484,10 @@ function recompute(): void {
     scene.frameWithoutSurface([
       ...sceneResults.flatMap((r) => r.path.points),
       ...[...planLines, ...qualityLines].flatMap((l) => [l.start, l.end]),
-      ...txtPoints.map((p): Vec3 => [p.e, p.n, p.z]),
+      ...state.applied.numbered.map((p): Vec3 => [p.e, p.n, p.z]),
     ]);
   }
-  scene.setRigLines(planLines, qualityLines, new Set(sceneResults.map((r) => r.id)));
+  scene.setRigLines(planLines, qualityLines);
   scene.setResults(sceneResults, state.opts);
   scene.setPoints(pointsWithoutHole().map((p) => ({ id: p.id ?? `(${p.sourceId})`, e: p.e, n: p.n, z: p.z })));
   scene.select(state.selectedId);
@@ -648,19 +661,6 @@ function holeBounds(): Bounds | null {
   return { min: [min[0] - m, min[1] - m, min[2]], max: [max[0] + m, max[1] + m, max[2]] };
 }
 
-/** Riggens hål som varken har sondering eller egen startpunkt, som markörer i översikten. */
-function rigPlanPoints(): PlanPoint[] {
-  const shown = new Set([...state.sceneResults.map((r) => normalizeId(r.id)), ...state.applied.numbered.map((p) => normalizeId(p.id))]);
-  const out: PlanPoint[] = [];
-  for (const ref of state.rigRefs.values()) {
-    const h = ref.quality ?? ref.plan;
-    if (!h || shown.has(normalizeId(h.id))) continue;
-    shown.add(normalizeId(h.id));
-    out.push({ id: h.id, sourceId: h.id, e: h.start[0], n: h.start[1], rig: true });
-  }
-  return out;
-}
-
 function renderPlan(): void {
   const c = $("plan-container");
   if (state.blastBearingFor !== siteKey()) {
@@ -674,7 +674,7 @@ function renderPlan(): void {
     c.innerHTML = `<p class="empty">Översikten visas när en yta, en borrplan eller en kvalitetslogg är inläst.</p>`;
     return;
   }
-  const points = [...pointsWithoutHole(), ...rigPlanPoints()];
+  const points = pointsWithoutHole();
   const bg = state.surface && state.planBg && state.planBgSurface === state.surface ? { dataUrl: state.planBg } : null;
   // Ramen följer modellens verkliga utbredning i den vridna vyn, inte dess rektangel i E N.
   const extent = state.surface && state.mesh ? rotatedExtent(state.mesh.positions, bounds, state.blastBearing, 4) : null;
@@ -698,8 +698,6 @@ function renderPlan(): void {
   for (const g of c.querySelectorAll<SVGGElement>("g.plan-hole, g.plan-point")) {
     g.addEventListener("click", (e) => {
       if (state.drawingDirection || planDragged) return;
-      // Riggens markörer kan inte numreras om; de har inget i startpunktsfilen att döpa om.
-      if (g.classList.contains("plan-rig")) return;
       if (state.numbering) {
         e.stopPropagation();
         numberPoint(g.dataset.source ?? "");
@@ -776,7 +774,7 @@ function attachPlanNavigation(svg: SVGSVGElement, frame: PlanFrame): void {
 /** Numreringsläge: klickad punkt får nästa nummer, upptagna nummer hoppas över. */
 function numberPoint(sourceId: string): void {
   if (!state.numbering || !sourceId) return;
-  const n = assignNumber(state.renames, state.points, sourceId, state.numbering.next);
+  const n = assignNumber(state.renames, basePoints(), sourceId, state.numbering.next);
   state.numbering.next = n + 1;
   saveRenames();
   recompute();
@@ -873,12 +871,12 @@ $("num-start").addEventListener("click", () => {
   renderPlan();
 });
 $("num-rest").addEventListener("click", () => {
-  numberUnnumbered(state.renames, state.points);
+  numberUnnumbered(state.renames, basePoints());
   saveRenames();
   recompute();
 });
 $("num-clear").addEventListener("click", () => {
-  clearNumbers(state.renames, state.points);
+  clearNumbers(state.renames, basePoints());
   saveRenames();
   state.numbering = { next: numberFrom() };
   state.drawingDirection = false;

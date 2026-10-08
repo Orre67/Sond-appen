@@ -201,11 +201,12 @@ borras, loggen vad riggen registrerade som borrat, båda som raka linjer från p
 northing i PointX och easting i PointY. Hålen kopplas på hålnamn, samma nummer som sonderingens
 Profile Number; loggar utan hålnamn (Sandvik) får namnet från närmaste planhål eller startpunkt
 inom en meter. Hål som saknar egen startpunkt får loggens start, annars planens, så att sonderingar
-kan kopplas utan startpunktsfil. I 3D visas planen grå och loggen blå, även utan ytmodell, och
-sonderingens bana i svart. I profilen ritas loggen streckad blå och planen prickad grå bakom
+kan kopplas utan startpunktsfil. I 3D visas planen som tunna ljusgrå linjer och loggens hål som grå cylindrar, lika tjocka som de
+sonderade, även utan ytmodell, och sonderingens bana i svart. I profilen ritas loggen streckad blå och planen prickad grå bakom
 sonderingen, och rubriken anger riggens längd, bäring och lutning. Översikten fungerar också utan
 ytmodell: ramen byggs av hålen, planen och loggen ritas som linjer sedda uppifrån, hål med sondering
-som vanligt och hål utan sondering som grå markörer.
+som vanligt och hål utan sondering som grå markörer. Omnumreringen omfattar även riggens hål och
+sparas per plannamn när startpunktsfil saknas.
 
 ## Tester och röktest
 
