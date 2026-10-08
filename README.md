@@ -7,10 +7,14 @@ minsta avståndet till ytan. Allt körs lokalt i webbläsaren, inga filer laddas
 
 ## Status
 
-- Steg 1, beräkningskärna med kommandoradsverktyg och tester: klart.
-- Steg 2, webbgränssnitt med profilbilder, planvy, 3D-vy, översikt och tabell: klart.
-- Steg 3, driftsättning på Vercel och PDF-export: återstår. Utskrift till PDF går redan via
-  knappen "Skriv ut alla".
+- Beräkningskärna med kommandoradsverktyg och tester: klart.
+- Webbgränssnitt med profilbilder, 3D-vy, översikt, tabell, omnumrering, borttagning och ångra: klart.
+- Publik app på Vercel med telefonsida för sprängarna: i drift, se nedan.
+- Borrplan och kvalitetslogg från riggen (IREDES) i 3D, översikt och profiler: klart.
+- Återstår: rapport, nytt gränssnitt, norrpil i översikten, siffror på avvikelsen mellan logg och
+  sondering. Utskrift till PDF går via knappen "Skriv ut alla".
+
+Arbetsrutiner och regler för koden står i [CLAUDE.md](CLAUDE.md).
 
 ## Köra webbappen
 
@@ -234,15 +238,21 @@ node scripts/screenshot.mjs
 syntetiska ytor med känt facit, samt mot Torphyttan-filerna om de finns på skrivbordet.
 `scripts/screenshot.mjs` öppnar demoläget i headless Chrome, väntar tills hålen är
 beräknade och fotar alla flikar till `out/app-*.png`. Kräver att `npm run dev` kör.
+`scripts/phone-shot.mjs`, `plan-shot.mjs` och `scene-shot.mjs` fotar telefonsidan, översikten och
+3D-vyn; `scripts/vercel-smoke.mjs` kör hela publiceringsflödet mot en adress.
 
 ## Kodstruktur
 
-- `src/io/` inläsare: `landxml.ts`, `obj.ts`, `startpoints.ts`, `dm4.ts`
+- `src/io/` inläsare: `landxml.ts`, `obj.ts`, `startpoints.ts`, `dm4.ts`, `iredes.ts` (borrplan och kvalitetslogg)
 - `src/geom/hole.ts` hålbana från stationer, provpunkter längs hålet
-- `src/geom/surface.ts` ytmodell med sökindex och närmaste punkt, med eller utan halvrumsregel
-- `src/geom/burden.ts` försättning per provpunkt och klassning
-- `src/geom/section.ts` snitt genom ytan, hålets huvudbäring
-- `src/core/project.ts` koppling startpunkter till sonderingsprofiler, `src/core/csv.ts` export
-- `src/view/profile.ts` profilbild som SVG, `plan.ts` översikt, `scene3d.ts` 3D-vy, `table.ts` tabell
+- `src/geom/surface.ts` ytmodell med sökindex och närmaste punkt, med ett eller flera halvrum
+- `src/geom/burden.ts` försättning per provpunkt, spärrar och klassning
+- `src/geom/section.ts` snitt genom ytan, hålets, försättningens och snittets bäring
+- `src/geom/geodesy.ts` SWEREF 99 TM till latitud/longitud, meridiankonvergens, missvisning (WMM2025)
+- `src/core/project.ts` koppling startpunkter, rigg och sondering; `numbering.ts` omnumrering;
+  `history.ts` ångra-motor; `share.ts` delningspaket; `catalog.ts` publiceringsregister; `csv.ts`, `dxf.ts` export
+- `src/view/profile.ts` profilbild som SVG, `plan.ts` översikt, `scene3d.ts` 3D-vy, `table.ts` tabell,
+  `hover.ts` avläsning, `panzoom.ts` telefonens zoom
 - `src/workers/parse.worker.ts` inläsning av stora filer i bakgrundstråd
-- `src/main.ts` gränssnittets logik, `src/cli/calc.ts` kommandoradsverktyget
+- `src/main.ts` skrivbordets logik, `src/mobil.ts` telefonsidan, `src/server/` och `api/` Vercel-funktioner,
+  `src/cli/calc.ts` kommandoradsverktyget
