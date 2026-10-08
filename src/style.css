@@ -538,3 +538,31 @@ button:disabled {
 #btn-unpublish {
   margin-top: 8px;
 }
+
+/* Borttagna hål under hållistan */
+.removed summary {
+  cursor: pointer;
+  font-size: 0.9em;
+  color: #555;
+  margin-top: 6px;
+}
+.removed-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  font-size: 0.9em;
+}
+.removed-list li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 0;
+}
+.removed-list li span {
+  flex: 1;
+  color: #666;
+}
+button.small {
+  padding: 2px 8px;
+  font-size: 0.85em;
+}

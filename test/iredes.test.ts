@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { lineGeometry, parseIredes, sniffXml } from "../src/io/iredes";
-import { rigReferences, rigStartPoints } from "../src/core/project";
+import { replacedLogEntries, rigReferences, rigStartPoints } from "../src/core/project";
 import type { StartPoint } from "../src/io/startpoints";
 
 const base = "C:\\Users\\oscar\\Desktop\\filer till claude\\iredes och quallog";
@@ -126,5 +126,31 @@ describe("lineGeometry", () => {
     const v = lineGeometry([0, 0, 10], [0, 0, 0]);
     expect(v.inclination).toBeCloseTo(0, 6);
     expect(v.length).toBeCloseTo(10, 6);
+  });
+});
+
+describe("ersatta loggningar", () => {
+  const hole = (id: string, holeId: string, endTime: string | null) => ({
+    id, holeId, unnamed: false, start: [100, 200, 50] as [number, number, number], end: [100, 200, 30] as [number, number, number],
+    length: 20, drilledInRock: null, diameter: null, type: null, startTime: null, endTime, status: null,
+  });
+  const file = (source: string, holes: ReturnType<typeof hole>[]) => ({
+    kind: "quality" as const, source, planId: null, planName: null, created: null, equipment: null, holes, warnings: [],
+  });
+
+  it("den senast borrade loggningen gäller även när den står först i filen", () => {
+    const log = file("logg.xml", [hole("12", "B", "2026-09-23T15:32:32+02:00"), hole("12", "A", "2026-09-07T14:20:01+02:00"), hole("13", "C", null)]);
+    const refs = rigReferences([log], []);
+    expect(refs.get("12")?.quality?.holeId).toBe("B");
+    const replaced = replacedLogEntries([log]);
+    expect(replaced).toHaveLength(1);
+    expect(replaced[0]).toMatchObject({ id: "12", holeId: "A", keptHoleId: "B", source: "logg.xml" });
+    expect(replaced[0].time).toBe("2026-09-07T14:20:01+02:00");
+  });
+
+  it("utan tider gäller filordningen", () => {
+    const log = file("logg.xml", [hole("5", "X", null), hole("5", "Y", null)]);
+    expect(rigReferences([log], []).get("5")?.quality?.holeId).toBe("Y");
+    expect(replacedLogEntries([log])[0].holeId).toBe("X");
   });
 });

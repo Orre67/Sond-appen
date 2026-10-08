@@ -95,3 +95,25 @@ describe("översikt utan ytmodell", () => {
     expect(framed).toContain('stroke-dasharray="0.6 0.4"');
   });
 });
+
+describe("hål på samma plats", () => {
+  it("staplar siffrorna, sätter ×n och ringar in markerad punkt", () => {
+    const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, {
+      points: [
+        { id: "29", sourceId: "29", e: 120, n: 210 },
+        { id: "66", sourceId: "66", e: 120.1, n: 210.05 },
+        { id: "7", sourceId: "7", e: 130, n: 210 },
+      ],
+      selectedSource: "7",
+    });
+    expect(svg).toContain(">×2<");
+    expect((svg.match(/>×2</g) ?? []).length).toBe(1);
+    const ys = [...svg.matchAll(/<text x="[^"]+" y="([^"]+)" font-size="0.65"[^>]*>(29|66)</g)].map((m) => [m[2], Number(m[1])] as const);
+    expect(ys).toHaveLength(2);
+    const y29 = ys.find((x) => x[0] === "29")![1];
+    const y66 = ys.find((x) => x[0] === "66")![1];
+    expect(Math.abs(y29 - y66)).toBeGreaterThan(0.5);
+    // Markerad punkt får en ring, de andra inte.
+    expect((svg.match(/r="0\.70"/g) ?? []).length).toBe(1);
+  });
+});

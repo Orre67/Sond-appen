@@ -208,6 +208,13 @@ ytmodell: ramen byggs av hålen, planen och loggen ritas som linjer sedda uppifr
 som vanligt och hål utan sondering som grå markörer. Omnumreringen omfattar även riggens hål och
 sparas per plannamn när startpunktsfil saknas.
 
+**Dubbletter och borttagning.** Loggas samma hål flera gånger med samma namn gäller den senast
+borrade; de tidigare listas som ersatta under "Borttagna hål". Hål med olika namn på samma plats,
+inom 0,25 m, visas i översikten med siffrorna staplade och ett ×n vid markören, och hållistan anger
+"samma läge som". Ett markerat hål, i översikten eller hållistan, tas bort med knappen "Ta bort hål"
+eller Delete. Borttagna hål försvinner ur beräkning, 3D, profiler, översikt och publicering,
+sparas per plats i webbläsaren och kan återställas i listan.
+
 ## Tester och röktest
 
 ```

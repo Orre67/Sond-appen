@@ -43,6 +43,8 @@ export interface PlanExtras {
   rigLines: { plan: PlanLine[]; quality: PlanLine[] };
   /** Streckad ram runt modellens rektangel när ortofoto saknas. Av när ingen modell finns. */
   modelFrame: boolean;
+  /** Markerad startpunkt utan beräknat hål (ursprungs-id), ritas med ring som ett markerat hål. */
+  selectedSource: string | null;
 }
 
 /** Utbredning i den vridna ramen, i meter kring modellens centrum. */
@@ -151,6 +153,7 @@ const DEFAULT_EXTRAS: PlanExtras = {
   pixelScale: null,
   rigLines: { plan: [], quality: [] },
   modelFrame: true,
+  selectedSource: null,
 };
 
 /**
@@ -215,7 +218,31 @@ export function renderPlanSvg(
   for (const l of ex.rigLines.plan) parts.push(rigLine("plan", l, "#8a8f99", `${f(sz(2, 0.25))} ${f(sz(3, 0.35))}`));
   for (const l of ex.rigLines.quality) parts.push(rigLine("quality", l, "#2b6cb0", null));
 
-  for (const r of results) {
+  // Hål på samma plats, inom 0,25 m, får siffrorna staplade ovanför varandra och ett ×n vid markören.
+  const items = [...results.map((r) => ({ e: r.path.collar[0], n: r.path.collar[1] })), ...ex.points.map((p) => ({ e: p.e, n: p.n }))];
+  const stackIdx = new Array<number>(items.length).fill(0);
+  const groupSize = new Array<number>(items.length).fill(1);
+  const grouped = new Array<boolean>(items.length).fill(false);
+  for (let i = 0; i < items.length; i++) {
+    if (grouped[i]) continue;
+    const members = [i];
+    for (let j = i + 1; j < items.length; j++) {
+      if (!grouped[j] && Math.hypot(items[i].e - items[j].e, items[i].n - items[j].n) <= 0.25) members.push(j);
+    }
+    members.forEach((m, k) => {
+      grouped[m] = true;
+      stackIdx[m] = k;
+      groupSize[m] = members.length;
+    });
+  }
+  const stackedLabel = (i: number, x: number, y: number, text: string) => label(x, y - stackIdx[i] * fontL * 1.15, text);
+  const badge = (i: number, x: number, y: number) =>
+    stackIdx[i] === 0 && groupSize[i] > 1
+      ? `<text class="stack-badge" x="${f(x + R * 1.8)}" y="${f(y + R * 0.9)}" font-size="${f(fontL * 0.75)}" fill="#666" stroke="#fff" stroke-width="${f(sz(1.5, 0.12))}" paint-order="stroke">×${groupSize[i]}</text>`
+      : "";
+  const ring = (x: number, y: number) => `<circle cx="${f(x)}" cy="${f(y)}" r="${f(sz(8, 0.7))}" fill="none" stroke="${INK}" stroke-width="${f(sz(1.5, 0.14))}"/>`;
+
+  for (const [ri, r] of results.entries()) {
     const sel = r.id === selectedId;
     const source = ex.sourceIds.get(r.id);
     const k = P(r.path.collar[0], r.path.collar[1]);
@@ -227,26 +254,30 @@ export function renderPlanSvg(
       })
       .join(" ");
     parts.push(`<polyline points="${trace}" fill="none" stroke="${INK}" stroke-width="${f(traceW)}"/>`);
-    if (sel) parts.push(`<circle cx="${f(k.x)}" cy="${f(k.y)}" r="${f(sz(8, 0.7))}" fill="none" stroke="${INK}" stroke-width="${f(sz(1.5, 0.14))}"/>`);
+    if (sel) parts.push(ring(k.x, k.y));
     parts.push(target(k.x, k.y));
     parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${INK}" stroke="#fff" stroke-width="${f(sz(1, 0.08))}"/>`);
-    parts.push(label(k.x, k.y, r.id));
+    parts.push(stackedLabel(ri, k.x, k.y, r.id));
+    parts.push(badge(ri, k.x, k.y));
     parts.push(`</g>`);
   }
 
-  // Startpunkter utan beräknat hål: grå markör med nummer (utan sondering), eller ihålig helt utan text
-  for (const p of ex.points) {
+  // Startpunkter utan beräknat hål: ljus ring med nummer (utan sondering), eller ihålig helt utan text
+  for (const [pi, p] of ex.points.entries()) {
+    const i = results.length + pi;
     const k = P(p.e, p.n);
     parts.push(`<g class="plan-point" data-source="${escapeXml(p.sourceId)}" style="cursor:pointer">`);
+    if (p.sourceId === ex.selectedSource) parts.push(ring(k.x, k.y));
     parts.push(target(k.x, k.y));
     if (p.id !== null) {
       // Utan sondering: ljus ring med grå kant, som i en borrplan.
       parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#e3e6ea" stroke="${MUTED}" stroke-width="${f(sz(1.2, 0.1))}"/>`);
-      parts.push(label(k.x, k.y, p.id));
+      parts.push(stackedLabel(i, k.x, k.y, p.id));
     } else {
       // Utan nummer: ihålig markör utan text, originalnamnet belamrar bara bilden.
       parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#fff" stroke="${INK}" stroke-width="${f(sz(1.4, 0.12))}"/>`);
     }
+    parts.push(badge(i, k.x, k.y));
     parts.push(`</g>`);
   }
 

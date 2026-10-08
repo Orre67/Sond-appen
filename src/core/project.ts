@@ -88,10 +88,58 @@ export function rigReferences(files: IredesFile[], points: StartPoint[]): Map<st
         // Loggen får hålets namn; HoleId behålls så att ursprunget syns.
         if (best) hole = { ...h, id: best.name, unnamed: false };
       }
-      at(normalizeId(hole.id)).quality = hole;
+      const slot = at(normalizeId(hole.id));
+      // Samma hål loggat flera gånger: den senast borrade gäller, de andra listas som ersatta.
+      if (!slot.quality || laterOrEqual(hole, slot.quality)) slot.quality = hole;
     }
   }
   return refs;
+}
+
+/** Loggningens tid: sluttiden, annars starttiden. */
+function logTime(h: IredesHole): string | null {
+  return h.endTime ?? h.startTime;
+}
+
+/** Sant när a loggades efter b, eller lika, eller när ingen tid finns att gå på (då gäller filordningen). */
+function laterOrEqual(a: IredesHole, b: IredesHole): boolean {
+  return (logTime(a) ?? "") >= (logTime(b) ?? "");
+}
+
+/** En loggning som ersatts av en senare loggning av samma hål. */
+export interface ReplacedLog {
+  id: string;
+  holeId: string;
+  time: string | null;
+  keptHoleId: string;
+  keptTime: string | null;
+  source: string;
+}
+
+/** Loggningar med samma hålnamn som en senare loggning: tas bort automatiskt och visas i listan över borttagna. */
+export function replacedLogEntries(files: IredesFile[]): ReplacedLog[] {
+  const groups = new Map<string, { hole: IredesHole; source: string }[]>();
+  for (const f of files) {
+    if (f.kind !== "quality") continue;
+    for (const h of f.holes) {
+      if (h.unnamed) continue;
+      const key = normalizeId(h.id);
+      const g = groups.get(key) ?? [];
+      g.push({ hole: h, source: f.source });
+      groups.set(key, g);
+    }
+  }
+  const out: ReplacedLog[] = [];
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    let kept = g[0];
+    for (const x of g.slice(1)) if (laterOrEqual(x.hole, kept.hole)) kept = x;
+    for (const x of g) {
+      if (x === kept) continue;
+      out.push({ id: x.hole.id, holeId: x.hole.holeId, time: logTime(x.hole), keptHoleId: kept.hole.holeId, keptTime: logTime(kept.hole), source: x.source });
+    }
+  }
+  return out;
 }
 
 /**

@@ -4,7 +4,7 @@ import { toCsv } from "./core/csv";
 import { toDxf } from "./core/dxf";
 import { checkCollars } from "./core/check";
 import { applyRenames, assignNumber, clearNumbers, numberUnnumbered, type Applied, type NamedPoint, type Renames } from "./core/numbering";
-import { linkHoles, rigReferences, rigStartPoints, type RigReference } from "./core/project";
+import { linkHoles, replacedLogEntries, rigReferences, rigStartPoints, type RigReference } from "./core/project";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions, type HoleResult, type RigLines } from "./geom/burden";
 import { autoBearingCorrection, describeCorrection, type AutoBearingCorrection } from "./geom/geodesy";
 import { buildHolePath, type HoleInput } from "./geom/hole";
@@ -73,6 +73,10 @@ const state = {
   /** Det som visas i 3D och översikt: resultaten, eller bara hålbanorna när ytmodell saknas. */
   sceneResults: [] as HoleResult[],
   selectedId: null as string | null,
+  /** Markerad startpunkt utan beräknat hål, ursprungs-id, för borttagning i översikten. */
+  selectedSource: null as string | null,
+  /** Borttagna hål, normaliserade ursprungs-id, sparas per plats i webbläsaren. */
+  removed: new Set<string>(),
   showAll: false,
   showSkipped: true,
   showTrace: true,
@@ -203,12 +207,21 @@ function loadRigFile(name: string, text: string): void {
   const parts = [`${f.holes.length} hål`, f.planName, f.equipment, ...f.warnings].filter((p): p is string => !!p);
   setFile(name, what, "klar", parts.join(" · "));
   // Utan startpunktsfil hör omnumreringen till riggens plannamn.
-  if (!state.pointsSource) state.renames = loadRenames(renamesSource());
+  if (!state.pointsSource) {
+    state.renames = loadRenames(renamesSource());
+    state.removed = loadRemoved(renamesSource());
+  }
 }
 
-/** Alla startpunkter som kan numreras om: startpunktsfilen och riggens hål som saknas där. */
+/** Startpunktsfilens punkter utom de borttagna. */
+function activePoints(): StartPoint[] {
+  return state.points.filter((p) => !state.removed.has(normalizeId(p.id)));
+}
+
+/** Alla startpunkter som kan numreras om: startpunktsfilen och riggens hål som saknas där, utom borttagna. */
 function basePoints(): StartPoint[] {
-  return [...state.points, ...rigStartPoints(state.rigRefs, state.points)];
+  const active = activePoints();
+  return [...active, ...rigStartPoints(state.rigRefs, active)];
 }
 
 /** Riggens raka linjer för ett hål, när plan eller logg finns. */
@@ -291,6 +304,7 @@ function applyPointsText(text: string, source: string): void {
   state.pointsWarnings = r.warnings;
   state.pointsSource = source;
   state.renames = loadRenames(source);
+  state.removed = loadRemoved(source);
   state.numbering = null;
   setFile(source, "Startpunkter", r.points.length > 0 ? "klar" : "fel", `${r.points.length} punkter${r.note ? `, ${r.note}` : ""}`);
 }
@@ -303,6 +317,53 @@ const bearingKey = (mesh: string) => `sond-appen:skjutriktning:${mesh}`;
 /** Nyckel för sparad omnumrering: startpunktsfilen, annars riggens plannamn. */
 function renamesSource(): string {
   return state.pointsSource || [...state.rigFiles.values()][0]?.planName || "";
+}
+
+const removedKey = (source: string) => `sond-appen:borttagna:${source}`;
+
+function loadRemoved(source: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(removedKey(source));
+    if (raw) return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    // Ingen lagring tillgänglig: börja tomt
+  }
+  return new Set();
+}
+
+function saveRemoved(): void {
+  try {
+    if (state.removed.size === 0) localStorage.removeItem(removedKey(renamesSource()));
+    else localStorage.setItem(removedKey(renamesSource()), JSON.stringify([...state.removed]));
+  } catch {
+    // Ingen lagring tillgänglig
+  }
+}
+
+/** Tar bort det markerade hålet, oavsett källa, ur allt: beräkning, 3D, profiler, översikt och publicering. */
+function removeSelected(): void {
+  const source = state.selectedId ? (state.sourceIds.get(state.selectedId) ?? state.selectedId) : state.selectedSource;
+  if (!source) return;
+  state.removed.add(normalizeId(source));
+  state.selectedId = null;
+  state.selectedSource = null;
+  saveRemoved();
+  recompute();
+}
+
+function restoreRemoved(key: string): void {
+  state.removed.delete(key);
+  saveRemoved();
+  recompute();
+}
+
+/** Markerar en startpunkt utan beräknat hål i översikten, så att den kan tas bort. */
+function selectPoint(source: string | null): void {
+  state.selectedSource = source;
+  state.selectedId = null;
+  scene.select(null);
+  renderHoleList();
+  renderPlan();
 }
 
 function loadRenames(source: string): Renames {
@@ -438,10 +499,12 @@ function recompute(): void {
   state.autoInfo = computeAutoInfo();
   state.opts = readOptions();
   renderAutoInfo();
-  const profiles = [...state.profiles.values()].flat();
+  // Borttagna hål filtreras bort ur alla källor innan något annat händer.
+  const profiles = [...state.profiles.values()].flat().filter((p) => !state.removed.has(normalizeId(p.id)));
   // Riggens plan och logg matchas mot startpunktsfilens ursprungliga nummer och ger startpunkter för hål som saknas där.
   // Omnumreringen gäller sedan alla punkter lika, från fil och från rigg.
-  state.rigRefs = rigReferences([...state.rigFiles.values()], state.points);
+  state.rigRefs = rigReferences([...state.rigFiles.values()], activePoints());
+  for (const key of state.removed) state.rigRefs.delete(key);
   state.applied = applyRenames(basePoints(), state.renames);
   state.sourceIds = new Map(state.applied.numbered.filter((p) => p.sourceId !== p.id).map((p) => [p.id, p.sourceId]));
   const link = linkHoles(state.applied.numbered, profiles);
@@ -502,9 +565,50 @@ function recompute(): void {
 
 // ---------- Hål-lista och val ----------
 
+/** Hål vars påhugg ligger inom 0,25 m i plan från ett annat: gällande id -> de andras id. */
+function duplicateMap(): Map<string, string[]> {
+  const pts = [...state.applied.numbered, ...state.applied.unnumbered];
+  const out = new Map<string, string[]>();
+  for (let i = 0; i < pts.length; i++) {
+    const others: string[] = [];
+    for (let j = 0; j < pts.length; j++) {
+      if (i !== j && Math.hypot(pts[i].e - pts[j].e, pts[i].n - pts[j].n) <= 0.25) others.push(pts[j].id);
+    }
+    if (others.length) out.set(pts[i].id, others);
+  }
+  return out;
+}
+
+function fmtTime(iso: string | null): string {
+  if (!iso) return "okänd tid";
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(iso);
+  return m ? `${m[1]} ${m[2]}` : iso;
+}
+
+/** Listan över borttagna hål: manuellt borttagna med återställning, och loggningar som ersatts av en senare. */
+function renderRemovedPanel(): void {
+  const panel = $<HTMLDetailsElement>("removed-panel");
+  const ul = $("removed-list");
+  const manual = [...state.removed].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const replaced = replacedLogEntries([...state.rigFiles.values()]);
+  panel.hidden = manual.length === 0 && replaced.length === 0;
+  $("removed-summary").textContent = `Borttagna hål (${manual.length + replaced.length})`;
+  ul.innerHTML = [
+    ...manual.map((k) => `<li><b>${esc(k)}</b><span>borttaget</span><button class="secondary small" data-restore="${esc(k)}">Återställ</button></li>`),
+    ...replaced.map(
+      (x) => `<li><b>${esc(x.id)}</b><span>loggning ${esc(fmtTime(x.time))} ersatt av ${esc(fmtTime(x.keptTime))} · ${esc(x.source)}</span></li>`,
+    ),
+  ].join("");
+  for (const b of ul.querySelectorAll<HTMLButtonElement>("button[data-restore]")) {
+    b.addEventListener("click", () => restoreRemoved(b.dataset.restore ?? ""));
+  }
+  $<HTMLButtonElement>("hole-remove").disabled = !(state.selectedId || state.selectedSource);
+}
+
 function renderHoleList(): void {
   const ul = $("hole-list");
   const sel = $<HTMLSelectElement>("hole-select");
+  const dup = duplicateMap();
   ul.innerHTML = state.results
     .map((r) => {
       const cls = holeClass(r, state.opts);
@@ -514,7 +618,8 @@ function renderHoleList(): void {
         `<li data-id="${esc(r.id)}" class="${r.id === state.selectedId ? "selected" : ""}">` +
         `<span class="dot" style="background:${CLASS_COLORS[cls]}"></span><b>${esc(r.id)}</b>` +
         `<span>min ${fmt(r.minBurden, 2)} m på ${fmt(r.minBurdenDepth, 1)} m</span>` +
-        `<span class="counts">${low ? `${low} röda ` : ""}${high ? `${high} blå` : ""}</span></li>`
+        `<span class="counts">${low ? `${low} röda ` : ""}${high ? `${high} blå` : ""}</span>` +
+        `${dup.has(r.id) ? `<span class="counts">samma läge som ${esc(dup.get(r.id)!.join(", "))}</span>` : ""}</li>`
       );
     })
     .join("");
@@ -536,10 +641,12 @@ function renderHoleList(): void {
     if (missing.length) unmatched.unshift(`Saknas: ${missing.join(", ")}.`);
   }
   $("unmatched").innerHTML = unmatched.map(esc).join("<br>");
+  renderRemovedPanel();
 }
 
 function selectHole(id: string | null, focus3d: boolean): void {
   state.selectedId = id;
+  state.selectedSource = null;
   scene.select(id);
   const r = state.results.find((x) => x.id === id);
   if (focus3d && r) scene.focusHole(r);
@@ -556,6 +663,7 @@ document.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
   if (e.key === "ArrowLeft") stepHole(-1);
   if (e.key === "ArrowRight") stepHole(1);
+  if (e.key === "Delete") removeSelected();
 });
 
 function stepHole(delta: number): void {
@@ -686,6 +794,7 @@ function renderPlan(): void {
     sourceIds: state.sourceIds,
     numbering: state.numbering !== null,
     extent,
+    selectedSource: state.selectedSource,
     rigLines: { plan: rigLines("plan").map(toPlanLine), quality: rigLines("quality").map(toPlanLine) },
     modelFrame: state.surface !== null,
   });
@@ -704,6 +813,7 @@ function renderPlan(): void {
         return;
       }
       if (g.classList.contains("plan-hole")) selectHole(g.dataset.id ?? null, false);
+      else selectPoint(g.dataset.source ?? null);
     });
   }
   attachPlanNavigation(svg, frame);
@@ -882,6 +992,7 @@ $("num-clear").addEventListener("click", () => {
   state.drawingDirection = false;
   recompute();
 });
+$("hole-remove").addEventListener("click", () => removeSelected());
 $("num-reset").addEventListener("click", () => {
   state.renames = new Map();
   saveRenames();

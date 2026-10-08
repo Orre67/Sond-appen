@@ -44,6 +44,10 @@
           <h2>4. Hål</h2>
           <ul id="hole-list" class="hole-list"></ul>
           <div id="unmatched" class="hint"></div>
+          <details id="removed-panel" class="removed" hidden>
+            <summary id="removed-summary">Borttagna hål</summary>
+            <ul id="removed-list" class="removed-list"></ul>
+          </details>
         </section>
         <section class="panel">
           <h2>Export</h2>
@@ -116,6 +120,8 @@
             <button id="num-rest" class="secondary" title="Ger punkter utan nummer nästa lediga nummer, i filens ordning" disabled>Numrera onumrerade</button>
             <button id="num-clear" class="secondary" title="Tar bort alla nummer och startar numreringen från startvärdet">Nollställ numrering</button>
             <button id="num-reset" class="secondary" title="Återgår till numren i startpunktsfilen" disabled>Originalnummer</button>
+            <span class="sep"></span>
+            <button id="hole-remove" class="secondary" title="Tar bort det markerade hålet ur beräkning, 3D, profiler, översikt och publicering. Återställ i listan Borttagna hål under 4. Hål. Delete-tangenten gör samma sak." disabled>Ta bort hål</button>
             <span id="plan-hint" class="hint toolbar-hint"></span>
           </div>
           <div id="plan-container"><p class="empty">Översikten visas när en yta och startpunkter finns.</p></div>
