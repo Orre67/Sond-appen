@@ -12,6 +12,7 @@ import {
   type SectionWindow,
 } from "../geom/section";
 import type { Surface } from "../geom/surface";
+import { lineGeometry } from "../io/iredes";
 import { distance, type Vec3 } from "../geom/vec";
 import { CLASS_COLORS, escapeXml, fmt } from "./format";
 
@@ -118,6 +119,8 @@ export interface FrontLayout extends FrontPanelGeom {
 }
 
 const SURFACE_COLOR = "#b4b4b4";
+const RIG_PLAN_COLOR = "#8a8f99";
+const RIG_QUALITY_COLOR = "#2b6cb0";
 const HOLE_COLOR = "#141414";
 const TICK_COLOR = "#3aa7b8";
 const TRACE_COLOR = "#c0392b";
@@ -165,6 +168,12 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
   };
   for (const p of r.path.points) take(p);
   if (r.ghost) for (const p of r.ghost.points) take(p);
+  for (const line of [r.reference?.plan, r.reference?.quality]) {
+    if (line) {
+      take(line.start);
+      take(line.end);
+    }
+  }
   for (const row of drawn) {
     take(row.point);
     if (row.closest && row.burden !== null) take(lineEnd(row.point, row.closest, row.burden, cap).end);
@@ -270,7 +279,14 @@ function headerLines(r: HoleResult, opts: BurdenOptions, bearing: number, compac
   const corrText = Math.abs(opts.bearingCorrection) > 1e-9 ? [`Bäringskorrektion ${signedDeg(opts.bearingCorrection)}`] : [];
   const own = holeBearing(r) ?? bearing;
   const turned = bearingDifference(own, bearing) > 0.5 ? [`Snitt mot ${fmt(bearing, 0)}°`] : [];
-  return [[`Längd ${fmt(r.path.length, 1)} m`, `Bäring ${fmt(own, 0)}°`, `Lutning ${fmt(incl, 0)}° från lod`, ...turned, ...corrText, modeText, minText].join("   ·   ")];
+  // Riggens egen uppgift om hålet, loggen före planen, för jämförelse med sonderingen.
+  const rig = r.reference?.quality ?? r.reference?.plan;
+  const rigText: string[] = [];
+  if (rig) {
+    const g = lineGeometry(rig.start, rig.end);
+    rigText.push(`${r.reference?.quality ? "Rigg" : "Plan"} ${fmt(g.length, 1)} m, ${fmt(g.bearing, 0)}°, ${fmt(g.inclination, 0)}°`);
+  }
+  return [[`Längd ${fmt(r.path.length, 1)} m`, `Bäring ${fmt(own, 0)}°`, `Lutning ${fmt(incl, 0)}° från lod`, ...turned, ...rigText, ...corrText, modeText, minText].join("   ·   ")];
 }
 
 /** Vinkel med tecken, t.ex. +5,9°. */
@@ -498,6 +514,18 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
     );
   }
 
+  // Riggens linjer: planen prickad grå, loggen streckad blå, så att sonderingen kan jämföras med dem.
+  if (r.reference?.plan) {
+    const a = projectToSection(frame, r.reference.plan.start);
+    const b = projectToSection(frame, r.reference.plan.end);
+    parts.push(`<line class="rig-plan" x1="${f1(X(a.s))}" y1="${f1(Y(a.z))}" x2="${f1(X(b.s))}" y2="${f1(Y(b.z))}" stroke="${RIG_PLAN_COLOR}" stroke-width="1.6" stroke-dasharray="2 4" stroke-linecap="round"/>`);
+  }
+  if (r.reference?.quality) {
+    const a = projectToSection(frame, r.reference.quality.start);
+    const b = projectToSection(frame, r.reference.quality.end);
+    parts.push(`<line class="rig-quality" x1="${f1(X(a.s))}" y1="${f1(Y(a.z))}" x2="${f1(X(b.s))}" y2="${f1(Y(b.z))}" stroke="${RIG_QUALITY_COLOR}" stroke-width="1.8" stroke-dasharray="7 4"/>`);
+  }
+
   // Hålbanan utan automatisk bäringskorrektion, som jämförelse
   if (r.ghost) {
     const gp = r.ghost.points.map((p) => projectToSection(frame, p));
@@ -683,6 +711,14 @@ function renderFrontPanel(
   if (r.ghost) {
     const ghost = r.ghost.points.map((p) => `${f1(FX(lateralOf(frame, p)))},${f1(Y(p[2]))}`);
     parts.push(`<polyline points="${ghost.join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="1.4" stroke-dasharray="3 4" opacity="0.4"/>`);
+  }
+  if (r.reference?.plan) {
+    const [a, b] = [r.reference.plan.start, r.reference.plan.end];
+    parts.push(`<line class="rig-plan" x1="${f1(FX(lateralOf(frame, a)))}" y1="${f1(Y(a[2]))}" x2="${f1(FX(lateralOf(frame, b)))}" y2="${f1(Y(b[2]))}" stroke="${RIG_PLAN_COLOR}" stroke-width="1.4" stroke-dasharray="2 4"/>`);
+  }
+  if (r.reference?.quality) {
+    const [a, b] = [r.reference.quality.start, r.reference.quality.end];
+    parts.push(`<line class="rig-quality" x1="${f1(FX(lateralOf(frame, a)))}" y1="${f1(Y(a[2]))}" x2="${f1(FX(lateralOf(frame, b)))}" y2="${f1(Y(b[2]))}" stroke="${RIG_QUALITY_COLOR}" stroke-width="1.6" stroke-dasharray="7 4"/>`);
   }
 
   // Ytspåret

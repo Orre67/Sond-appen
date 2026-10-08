@@ -4,15 +4,17 @@ import { toCsv } from "./core/csv";
 import { toDxf } from "./core/dxf";
 import { checkCollars } from "./core/check";
 import { applyRenames, assignNumber, clearNumbers, numberUnnumbered, type Applied, type Renames } from "./core/numbering";
-import { linkHoles } from "./core/project";
-import { computeHole, DEFAULT_OPTIONS, type BurdenOptions, type HoleResult } from "./geom/burden";
+import { linkHoles, rigReferences, rigStartPoints, type RigReference } from "./core/project";
+import { computeHole, DEFAULT_OPTIONS, type BurdenOptions, type HoleResult, type RigLines } from "./geom/burden";
 import { autoBearingCorrection, describeCorrection, type AutoBearingCorrection } from "./geom/geodesy";
-import { buildHolePath } from "./geom/hole";
+import { buildHolePath, type HoleInput } from "./geom/hole";
 import { Surface } from "./geom/surface";
+import type { Vec3 } from "./geom/vec";
 import { parseDm4, type SondeProfile } from "./io/dm4";
+import { parseIredes, sniffXml, type IredesFile, type IredesHole } from "./io/iredes";
 import type { MeshData } from "./io/mesh";
 import { parseMtl } from "./io/obj";
-import { parseStartPoints, type StartPoint } from "./io/startpoints";
+import { normalizeId, parseStartPoints, type StartPoint } from "./io/startpoints";
 import { CLASS_COLORS, fmt, holeClass } from "./view/format";
 import { blastBearingFromLine, planFrame, renderPlanSvg, rotatedExtent, type PlanFrame, type PlanPoint } from "./view/plan";
 import QRCode from "qrcode";
@@ -59,6 +61,9 @@ const state = {
   collarWarnings: [] as string[],
   profiles: new Map<string, SondeProfile[]>(),
   dm4Warnings: new Map<string, string[]>(),
+  /** Riggens borrplaner och kvalitetsloggar (IREDES), per filnamn, och deras uppgifter per hålnamn. */
+  rigFiles: new Map<string, IredesFile>(),
+  rigRefs: new Map<string, RigReference>(),
   files: [] as FileEntry[],
   opts: { ...DEFAULT_OPTIONS } as BurdenOptions,
   /** Automatisk bäringskorrektion: kryssrutan och underlaget för aktuell ytmodell och sonderingsdatum. */
@@ -142,6 +147,14 @@ async function handleFiles(files: File[]): Promise<void> {
         case "landxml":
           await loadMesh(file, kind);
           break;
+        case "xml": {
+          // En .xml kan vara en LandXML-yta eller en IREDES-fil från riggen: avgörs på innehållet.
+          const sniffed = sniffXml(await file.slice(0, 4096).text());
+          if (sniffed === "landxml") await loadMesh(file, "landxml");
+          else if (sniffed === "iredes-plan" || sniffed === "iredes-quality") loadRigFile(file.name, await file.text());
+          else setFile(file.name, "XML", "fel", "varken LandXML-yta eller IREDES-borrplan/kvalitetslogg");
+          break;
+        }
         case "mtl":
           state.mtlTextures = parseMtl(await file.text());
           setFile(file.name, "Material", "klar", Object.values(state.mtlTextures).join(", ") || "ingen textur");
@@ -178,6 +191,47 @@ async function handleFiles(files: File[]): Promise<void> {
     }
   }
   recompute();
+}
+
+/** Borrplan eller kvalitetslogg från riggen. Planen är vad som skulle borras, loggen vad riggen registrerade som borrat. */
+function loadRigFile(name: string, text: string): void {
+  const f = parseIredes(text, name);
+  state.rigFiles.set(name, f);
+  const what = f.kind === "plan" ? "Borrplan (IREDES)" : "Kvalitetslogg (IREDES)";
+  const parts = [`${f.holes.length} hål`, f.planName, f.equipment, ...f.warnings].filter((p): p is string => !!p);
+  setFile(name, what, "klar", parts.join(" · "));
+}
+
+/** Riggens raka linjer för ett hål, när plan eller logg finns. */
+function rigLinesFor(id: string): RigLines | undefined {
+  const ref = state.rigRefs.get(normalizeId(id));
+  if (!ref || (!ref.plan && !ref.quality)) return undefined;
+  const line = (h: IredesHole | undefined) => (h ? { start: h.start, end: h.end } : undefined);
+  return { plan: line(ref.plan), quality: line(ref.quality) };
+}
+
+/** Riggens linjer av ett slag, för 3D-vyn. */
+function rigLines(kind: "plan" | "quality"): { id: string; start: Vec3; end: Vec3 }[] {
+  const out: { id: string; start: Vec3; end: Vec3 }[] = [];
+  for (const ref of state.rigRefs.values()) {
+    const h = ref[kind];
+    if (h) out.push({ id: h.id, start: h.start, end: h.end });
+  }
+  return out;
+}
+
+/** Utan yta finns ingen försättning, men hålbanorna kan ändå byggas och visas i 3D mot riggens linjer. */
+function pathOnlyResults(holes: HoleInput[]): HoleResult[] {
+  const out: HoleResult[] = [];
+  for (const h of holes) {
+    try {
+      const path = buildHolePath(h, { method: state.opts.method, bearingCorrection: state.opts.bearingCorrection });
+      out.push({ id: h.id, path, rows: [], fine: [], minBurden: null, minBurdenDepth: null, reference: rigLinesFor(h.id) });
+    } catch {
+      // Ogiltig sondering, hoppas över här; felet visas när ytan finns.
+    }
+  }
+  return out;
 }
 
 async function loadMesh(file: File, kind: "obj" | "landxml"): Promise<void> {
@@ -367,9 +421,14 @@ function recompute(): void {
   const profiles = [...state.profiles.values()].flat();
   state.applied = applyRenames(state.points, state.renames);
   state.sourceIds = new Map(state.applied.numbered.filter((p) => p.sourceId !== p.id).map((p) => [p.id, p.sourceId]));
-  const link = linkHoles(state.applied.numbered, profiles);
+  // Riggens plan och logg ger startpunkter för hål som saknar egen startpunkt, och referenslinjer per hål.
+  const txtPoints = state.applied.numbered;
+  state.rigRefs = rigReferences([...state.rigFiles.values()], txtPoints);
+  const rigPoints = rigStartPoints(state.rigRefs, txtPoints);
+  const link = linkHoles([...txtPoints, ...rigPoints], profiles);
   state.linkWarnings = link.warnings;
-  state.unmatchedPoints = link.unmatchedPoints.map((p) => p.id);
+  const txtIds = new Set(txtPoints.map((p) => normalizeId(p.id)));
+  state.unmatchedPoints = link.unmatchedPoints.filter((p) => txtIds.has(normalizeId(p.id))).map((p) => p.id);
   state.unmatchedProfiles = link.unmatchedProfiles.map((p) => p.id);
   // Påhugg som inte ligger på ytmodellen avslöjar fel koordinater som ingen filtolkning kan se.
   state.collarWarnings = state.surface ? checkCollars(state.surface, link.holes) : [];
@@ -384,6 +443,7 @@ function recompute(): void {
         if (state.autoCorr && state.autoInfo && Math.abs(state.autoInfo.correction) > 1e-9) {
           r.ghost = buildHolePath(h, { method: state.opts.method, bearingCorrection: state.opts.bearingCorrection - state.autoInfo.correction });
         }
+        r.reference = rigLinesFor(h.id);
         state.results.push(r);
       } catch (err) {
         state.linkWarnings.push(`Hål ${h.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -395,7 +455,19 @@ function recompute(): void {
   }
   if (!state.results.some((r) => r.id === state.selectedId)) state.selectedId = state.results[0]?.id ?? null;
 
-  scene.setResults(state.results, state.opts);
+  // Utan yta visas ändå hålbanorna och riggens linjer i 3D, så att sondering och logg kan jämföras.
+  const planLines = rigLines("plan");
+  const qualityLines = rigLines("quality");
+  const sceneResults = state.surface ? state.results : pathOnlyResults(link.holes);
+  if (!state.surface) {
+    scene.frameWithoutSurface([
+      ...sceneResults.flatMap((r) => r.path.points),
+      ...[...planLines, ...qualityLines].flatMap((l) => [l.start, l.end]),
+      ...txtPoints.map((p): Vec3 => [p.e, p.n, p.z]),
+    ]);
+  }
+  scene.setRigLines(planLines, qualityLines, new Set(sceneResults.map((r) => r.id)));
+  scene.setResults(sceneResults, state.opts);
   scene.setPoints(pointsWithoutHole().map((p) => ({ id: p.id ?? `(${p.sourceId})`, e: p.e, n: p.n, z: p.z })));
   scene.select(state.selectedId);
   renderHoleList();
@@ -438,7 +510,7 @@ function renderHoleList(): void {
   if (state.results.length === 0) {
     const missing: string[] = [];
     if (!state.surface) missing.push("yta");
-    if (state.points.length === 0) missing.push("startpunkter");
+    if (state.points.length === 0 && state.rigFiles.size === 0) missing.push("startpunkter");
     if (state.profiles.size === 0) missing.push("sondering");
     if (missing.length) unmatched.unshift(`Saknas: ${missing.join(", ")}.`);
   }

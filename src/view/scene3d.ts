@@ -7,6 +7,15 @@ import type { Vec3 } from "../geom/vec";
 import { CLASS_COLORS } from "./format";
 
 const HOLE_COLOR = 0x141414;
+const RIG_PLAN_COLOR = 0x9aa3ad;
+const RIG_QUALITY_COLOR = 0x2b6cb0;
+
+/** En rak linje från riggen, E N Z. */
+export interface RigLine {
+  id: string;
+  start: Vec3;
+  end: Vec3;
+}
 const SELECTED_COLOR = 0xf0a500;
 
 /** 3D-vy med ytan, hålen och försättningslinjerna. Allt ritas i lokala koordinater kring ytans origo. */
@@ -25,6 +34,9 @@ export class Scene3D {
   private labelsGroup = new THREE.Group();
   /** Startpunkter utan sondering, för kontroll av läget mot ytan. */
   private pointsGroup = new THREE.Group();
+  /** Riggens raka linjer: borrplan och kvalitetslogg. */
+  private rigGroup = new THREE.Group();
+  private framedWithoutSurface = false;
   private pickables: THREE.Object3D[] = [];
   private holeMaterials = new Map<string, THREE.MeshStandardMaterial>();
   private holeMeshes = new Map<string, THREE.Mesh[]>();
@@ -60,7 +72,7 @@ export class Scene3D {
     hemi.position.set(0, 0, 1);
     const sun = new THREE.DirectionalLight(0xffffff, 1.4);
     sun.position.set(-60, -80, 120);
-    this.scene.add(hemi, sun, this.holesGroup, this.linesGroup, this.labelsGroup, this.pointsGroup);
+    this.scene.add(hemi, sun, this.holesGroup, this.linesGroup, this.labelsGroup, this.pointsGroup, this.rigGroup);
 
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
@@ -132,19 +144,79 @@ export class Scene3D {
     this.surfaceMesh = new THREE.Mesh(geometry, material);
     this.scene.add(this.surfaceMesh);
 
-    const b = surface.bounds;
+    this.framedWithoutSurface = false;
+    this.frameBounds(surface.bounds);
+  }
+
+  /** Kameran så att en låda i E N Z syns snett från sydost. */
+  private frameBounds(b: Bounds): void {
     const center = new THREE.Vector3(
       (b.min[0] + b.max[0]) / 2 - this.origin[0],
       (b.min[1] + b.max[1]) / 2 - this.origin[1],
       (b.min[2] + b.max[2]) / 2 - this.origin[2],
     );
-    const size = Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
+    const size = Math.max(10, b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
     this.controls.target.copy(center);
     this.camera.position.set(center.x + size * 0.9, center.y - size * 0.9, center.z + size * 0.7);
     this.camera.near = Math.max(0.05, size / 1000);
     this.camera.far = size * 20;
     this.camera.updateProjectionMatrix();
     this.controls.update();
+    this.requestRender();
+  }
+
+  /**
+   * Utan yta: origo och kamera efter hålen, så att SWEREF-koordinater inte tappar precision i float32.
+   * Kameran flyttas bara första gången eller när origo byter plats, inte vid varje omräkning.
+   */
+  frameWithoutSurface(points: Vec3[]): void {
+    if (this.surfaceMesh || points.length === 0) return;
+    const min: Vec3 = [Infinity, Infinity, Infinity];
+    const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const p of points) {
+      for (let i = 0; i < 3; i++) {
+        min[i] = Math.min(min[i], p[i]);
+        max[i] = Math.max(max[i], p[i]);
+      }
+    }
+    const origin: Vec3 = [Math.floor((min[0] + max[0]) / 2), Math.floor((min[1] + max[1]) / 2), Math.floor((min[2] + max[2]) / 2)];
+    const moved = origin.some((v, i) => Math.abs(v - this.origin[i]) > 50);
+    if (this.framedWithoutSurface && !moved) return;
+    this.origin = origin;
+    this.framedWithoutSurface = true;
+    this.frameBounds({ min, max });
+  }
+
+  /** Riggens raka linjer: planen tunn och grå, loggen blå. Hål utan sondering får etikett vid loggens eller planens start. */
+  setRigLines(plan: RigLine[], quality: RigLine[], labelled: Set<string>): void {
+    for (const child of [...this.rigGroup.children]) {
+      this.rigGroup.remove(child);
+      disposeObject(child);
+    }
+    const o = this.origin;
+    const L = (p: Vec3) => new THREE.Vector3(p[0] - o[0], p[1] - o[1], p[2] - o[2]);
+    const addLines = (lines: RigLine[], color: number, opacity: number) => {
+      if (lines.length === 0) return;
+      const pos: number[] = [];
+      for (const l of lines) {
+        const a = L(l.start);
+        const b = L(l.end);
+        pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      this.rigGroup.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity })));
+    };
+    addLines(plan, RIG_PLAN_COLOR, 0.85);
+    addLines(quality, RIG_QUALITY_COLOR, 1);
+    const seen = new Set(labelled);
+    for (const l of [...quality, ...plan]) {
+      if (seen.has(l.id)) continue;
+      seen.add(l.id);
+      const label = makeLabel(l.id);
+      label.position.copy(L(l.start)).add(new THREE.Vector3(0, 0, 1.1));
+      this.rigGroup.add(label);
+    }
     this.requestRender();
   }
 

@@ -97,6 +97,19 @@ export interface HoleResult {
   minBurdenDepth: number | null;
   /** Hålbanan utan den automatiska bäringskorrektionen, ritas som spöklinje i profilen när Auto är på. */
   ghost?: HolePath;
+  /** Riggens raka linjer för hålet: borrplanen och kvalitetsloggen, för jämförelse med sonderingen. */
+  reference?: RigLines;
+}
+
+/** En rak linje från påhugg till botten enligt riggen, E N Z. */
+export interface ReferenceLine {
+  start: Vec3;
+  end: Vec3;
+}
+
+export interface RigLines {
+  plan?: ReferenceLine;
+  quality?: ReferenceLine;
 }
 
 function classOf(burden: number | null, skipped: boolean, opts: BurdenOptions): BurdenClass {

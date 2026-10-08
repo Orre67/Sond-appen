@@ -9,7 +9,7 @@ import { basename, dirname, extname } from "node:path";
 import { toCsv } from "../core/csv";
 import { toDxf } from "../core/dxf";
 import { checkCollars } from "../core/check";
-import { linkHoles } from "../core/project";
+import { linkHoles, rigReferences, rigStartPoints } from "../core/project";
 import { renderProfileSvg } from "../view/profile";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions } from "../geom/burden";
 import { autoBearingCorrection, describeCorrection } from "../geom/geodesy";
@@ -20,12 +20,15 @@ import { parseDm4, type SondeProfile } from "../io/dm4";
 import { parseLandXml } from "../io/landxml";
 import type { MeshData } from "../io/mesh";
 import { parseObj } from "../io/obj";
-import { parseStartPoints } from "../io/startpoints";
+import { normalizeId, parseStartPoints } from "../io/startpoints";
+import { parseIredes, type IredesFile } from "../io/iredes";
 
 interface Args {
   surface?: string;
   points?: string;
   dm4: string[];
+  /** IREDES-filer från riggen: borrplan och kvalitetslogg. */
+  rig: string[];
   hole?: string;
   out: string;
   svgDir?: string;
@@ -38,7 +41,7 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { dm4: [], out: "out/forsattning.csv", opts: {}, auto: false };
+  const a: Args = { dm4: [], rig: [], out: "out/forsattning.csv", opts: {}, auto: false };
   let i = 0;
   const next = () => argv[++i];
   for (; i < argv.length; i++) {
@@ -52,6 +55,9 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--dm4":
         while (i + 1 < argv.length && !argv[i + 1].startsWith("--")) a.dm4.push(argv[++i]);
+        break;
+      case "--rig":
+        while (i + 1 < argv.length && !argv[i + 1].startsWith("--")) a.rig.push(argv[++i]);
         break;
       case "--hole":
         a.hole = next();
@@ -125,7 +131,7 @@ const sv = (v: number | null, d = 2) => (v === null ? "" : v.toFixed(d).replace(
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.surface || !args.points || args.dm4.length === 0) {
-    console.error("Användning: --surface <fil> --points <fil> --dm4 <fil...> [--interval 0.5 --min 1.5 --max 3.5 --start 1 --mode stick|point --fine 0.05 --correction 0 --auto --date 2026-10-01 --method average|tangent --hole 20 --out fil.csv --svg out/profiler --dxf out/kontroll.dxf --holes 19,20]");
+    console.error("Användning: --surface <fil> --points <fil> --dm4 <fil...> [--rig plan.xml logg.xml --interval 0.5 --min 1.5 --max 3.5 --start 1 --mode stick|point --fine 0.05 --correction 0 --auto --date 2026-10-01 --method average|tangent --hole 20 --out fil.csv --svg out/profiler --dxf out/kontroll.dxf --holes 19,20]");
     process.exit(1);
   }
   const t0 = performance.now();
@@ -150,7 +156,13 @@ function main() {
   }
   console.log(`Sondering: ${profiles.length} profiler från ${args.dm4.length} fil(er)`);
 
-  const link = linkHoles(sp.points, profiles);
+  const rigFiles: IredesFile[] = args.rig.map((f) => parseIredes(readFileSync(f, "utf8"), basename(f)));
+  for (const f of rigFiles) {
+    console.log(`Rigg: ${f.source} ${f.kind === "plan" ? "borrplan" : "kvalitetslogg"}, ${f.holes.length} hål${f.equipment ? `, ${f.equipment}` : ""}`);
+    for (const w of f.warnings) console.log(`  Varning: ${w}`);
+  }
+  const rigRefs = rigReferences(rigFiles, sp.points);
+  const link = linkHoles([...sp.points, ...rigStartPoints(rigRefs, sp.points)], profiles);
   for (const w of link.warnings) console.log(`  Varning: ${w}`);
   if (link.unmatchedPoints.length) console.log(`  Startpunkter utan sondering: ${link.unmatchedPoints.map((p) => p.id).join(", ")}`);
   if (link.unmatchedProfiles.length) console.log(`  Sondering utan startpunkt: ${link.unmatchedProfiles.map((p) => p.id).join(", ")}`);
@@ -176,6 +188,13 @@ function main() {
   const t3 = performance.now();
   const results = link.holes.map((h) => {
     const r = computeHole(surface, h, opts);
+    const ref = rigRefs.get(normalizeId(h.id));
+    if (ref && (ref.plan || ref.quality)) {
+      r.reference = {
+        plan: ref.plan ? { start: ref.plan.start, end: ref.plan.end } : undefined,
+        quality: ref.quality ? { start: ref.quality.start, end: ref.quality.end } : undefined,
+      };
+    }
     if (Math.abs(autoCorrection) > 1e-9) r.ghost = buildHolePath(h, { method: opts.method, bearingCorrection: opts.bearingCorrection - autoCorrection });
     return r;
   });

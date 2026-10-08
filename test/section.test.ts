@@ -5,7 +5,7 @@ import { Surface } from "../src/geom/surface";
 import type { MeshData } from "../src/io/mesh";
 import { checkCollars } from "../src/core/check";
 import { renderPlanSvg } from "../src/view/plan";
-import { drawProfile, frontLayout, holeInfoText, hoverMarkup, renderFrontSvg, renderProfile, renderProfileSvg, sectionWindowFor } from "../src/view/profile";
+import { drawProfile, frontLayout, holeInfoText, hoverMarkup, profileLayout, renderFrontSvg, renderProfile, renderProfileSvg, sectionWindowFor } from "../src/view/profile";
 
 const SIN14 = Math.sin((14 * Math.PI) / 180);
 
@@ -197,5 +197,36 @@ describe("snittets riktning", () => {
     expect(svg).toContain("Snitt mot 90°");
     // Rundpilen i bildens hörn visar att snittet är vridet.
     expect(svg).toContain('class="section-turned"');
+  });
+});
+
+describe("riggens linjer i profilen", () => {
+  const top: [number, number, number][] = [[-50, -50, 0], [2, -50, 0], [2, 50, 0], [-50, 50, 0]];
+  const wall: [number, number, number][] = [[2, -50, 0], [2, 50, 0], [2, 50, -20], [2, -50, -20]];
+  const floor: [number, number, number][] = [[2, -50, -20], [2, 50, -20], [60, 50, -20], [60, -50, -20]];
+  const s = Surface.fromMesh(quads(top, wall, floor));
+
+  it("plan och logg ritas bakom hålet i snitt och framifrån, och rubriken anger riggens värden", () => {
+    const opts = { ...DEFAULT_OPTIONS, interval: 1, mode: "point" as const };
+    const r = computeHole(s, { id: "r", collar: [0, 0, 0], stations: [
+      { depth: 0, bearing: 90, inclination: 14 },
+      { depth: 10, bearing: 90, inclination: 14 },
+    ] }, opts);
+    r.reference = {
+      plan: { start: [0, 0, 0], end: [2.5, 0, -9.7] },
+      quality: { start: [0.1, 0.05, 0.02], end: [2.3, 0.4, -9.6] },
+    };
+    const svg = renderProfileSvg(r, s, opts);
+    expect(svg).toContain('class="rig-plan"');
+    expect(svg).toContain('class="rig-quality"');
+    expect(svg).toMatch(/Rigg \d+,\d m, \d+°, \d+°/);
+    // Bildramen tar med riggens linjer.
+    const E = profileLayout(r, opts);
+    expect(E.sMax).toBeGreaterThanOrEqual(2.5);
+    const front = renderFrontSvg(r, opts, {}, frontLayout(r, opts));
+    expect(front).toContain('class="rig-quality"');
+    // Utan referens ritas inget.
+    delete r.reference;
+    expect(renderProfileSvg(r, s, opts)).not.toContain("rig-");
   });
 });

@@ -28,7 +28,7 @@ export function parseMeshInWorker(file: File, kind: "obj" | "landxml"): Promise<
   });
 }
 
-export type FileKind = "obj" | "landxml" | "mtl" | "image" | "dm4" | "points" | "unknown";
+export type FileKind = "obj" | "landxml" | "xml" | "mtl" | "image" | "dm4" | "points" | "unknown";
 
 export function classifyFile(name: string): FileKind {
   const ext = name.toLowerCase().split(".").pop() ?? "";
@@ -36,6 +36,8 @@ export function classifyFile(name: string): FileKind {
     case "obj":
       return "obj";
     case "xml":
+      // LandXML-yta eller IREDES-fil från riggen, avgörs på innehållet.
+      return "xml";
     case "landxml":
       return "landxml";
     case "mtl":

@@ -125,6 +125,7 @@ npm run calc -- --surface yta.obj --points startpunkter.txt --dm4 fil1.dm4 fil2.
 | `--surface` | LandXML (.xml) eller OBJ (.obj) | krävs |
 | `--points` | Textfil med hål-id och E, N, Z. Koordinaterna känns igen på värdena (SWEREF 99 TM, även i ordningen N E Z), övriga kolumner ignoreras | krävs |
 | `--dm4` | En eller flera DM4-filer, matchas på Profile Number = hål-ID | krävs |
+| `--rig` | IREDES-filer från riggen: borrplan (DRPPlan) och kvalitetslogg (DRPQual). Ger startpunkter för hål utan egen startpunkt och raka referenslinjer i profilerna | |
 | `--interval` | Måttstickans längd, eller avståndet mellan punkter i punktläge, m | 1.0 |
 | `--mode` | `stick`: sämsta värdet inom varje sticka. `point`: värdet i punkten | stick |
 | `--fine` | Internt söksteg längs hålet, styr även ytspåret, m | 0.05 |
@@ -193,6 +194,16 @@ omkring +6°. Fältet bredvid är ett tillägg för en uppmätt lokal avvikelse.
 hålbanan utan korrektion som en tunn streckad spöklinje i profilen så att skillnaden syns, och
 profilens rubrik och telefonens infotext anger den tillämpade korrektionen. Lokal magnetisk störning
 från berg och rigg rättas inte. Tecknet bör kontrolleras mot riggens GNSS-bäring på några hål.
+
+**Rigg.** Borrplan (IREDES DRPPlan) och kvalitetslogg (IREDES DRPQual) från Epiroc, Sandvik eller
+Rockma läses in som vilken fil som helst; en .xml avgörs på innehållet. Planen är vad som skulle
+borras, loggen vad riggen registrerade som borrat, båda som raka linjer från påhugg till botten med
+northing i PointX och easting i PointY. Hålen kopplas på hålnamn, samma nummer som sonderingens
+Profile Number; loggar utan hålnamn (Sandvik) får namnet från närmaste planhål eller startpunkt
+inom en meter. Hål som saknar egen startpunkt får loggens start, annars planens, så att sonderingar
+kan kopplas utan startpunktsfil. I 3D visas planen grå och loggen blå, även utan ytmodell, och
+sonderingens bana i svart. I profilen ritas loggen streckad blå och planen prickad grå bakom
+sonderingen, och rubriken anger riggens längd, bäring och lutning.
 
 ## Tester och röktest
 

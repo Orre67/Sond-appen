@@ -152,7 +152,7 @@ export default defineConfig({
     host: true,
     fs: {
       // Tillåter demoläget (?demo=/@fs/...) att hämta exempelfiler utanför projektet under utveckling.
-      allow: [".", "C:/Users/oscar/Desktop/filer till claude/sond appen"],
+      allow: [".", "C:/Users/oscar/Desktop/filer till claude"],
     },
   },
 });
