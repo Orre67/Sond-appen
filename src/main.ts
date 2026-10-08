@@ -12,7 +12,7 @@ import { Surface } from "./geom/surface";
 import type { Vec3 } from "./geom/vec";
 import { parseDm4, type SondeProfile } from "./io/dm4";
 import { parseIredes, sniffXml, type IredesFile, type IredesHole } from "./io/iredes";
-import type { MeshData } from "./io/mesh";
+import type { Bounds, MeshData } from "./io/mesh";
 import { parseMtl } from "./io/obj";
 import { normalizeId, parseStartPoints, type StartPoint } from "./io/startpoints";
 import { CLASS_COLORS, fmt, holeClass } from "./view/format";
@@ -70,6 +70,8 @@ const state = {
   autoCorr: false,
   autoInfo: null as AutoBearingCorrection | null,
   results: [] as HoleResult[],
+  /** Det som visas i 3D och översikt: resultaten, eller bara hålbanorna när ytmodell saknas. */
+  sceneResults: [] as HoleResult[],
   selectedId: null as string | null,
   showAll: false,
   showSkipped: true,
@@ -319,13 +321,18 @@ function loadBlastBearing(mesh: string): number | null {
   return null;
 }
 
+/** Nyckel för sparad skjutriktning: ytmodellens namn, annars riggens plannamn. */
+function siteKey(): string {
+  return state.meshName || [...state.rigFiles.values()][0]?.planName || "";
+}
+
 function setBlastBearing(value: number | null): void {
   state.blastBearing = value;
-  state.blastBearingFor = state.meshName;
+  state.blastBearingFor = siteKey();
   state.planView = null;
   try {
-    if (value === null) localStorage.removeItem(bearingKey(state.meshName));
-    else localStorage.setItem(bearingKey(state.meshName), String(value));
+    if (value === null) localStorage.removeItem(bearingKey(siteKey()));
+    else localStorage.setItem(bearingKey(siteKey()), String(value));
   } catch {
     // Ingen lagring tillgänglig
   }
@@ -459,6 +466,7 @@ function recompute(): void {
   const planLines = rigLines("plan");
   const qualityLines = rigLines("quality");
   const sceneResults = state.surface ? state.results : pathOnlyResults(link.holes);
+  state.sceneResults = sceneResults;
   if (!state.surface) {
     scene.frameWithoutSurface([
       ...sceneResults.flatMap((r) => r.path.points),
@@ -620,28 +628,66 @@ function pointsWithoutHole(): (PlanPoint & { z: number })[] {
   ];
 }
 
+/** Hålens utbredning när ytmodell saknas: sonderingar, riggens linjer och startpunkter, med marginal. */
+function holeBounds(): Bounds | null {
+  const pts: Vec3[] = [
+    ...state.sceneResults.flatMap((r) => r.path.points),
+    ...[...rigLines("plan"), ...rigLines("quality")].flatMap((l) => [l.start, l.end]),
+    ...state.applied.numbered.map((p): Vec3 => [p.e, p.n, p.z]),
+  ];
+  if (pts.length === 0) return null;
+  const min: Vec3 = [Infinity, Infinity, Infinity];
+  const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const p of pts) {
+    for (let i = 0; i < 3; i++) {
+      min[i] = Math.min(min[i], p[i]);
+      max[i] = Math.max(max[i], p[i]);
+    }
+  }
+  const m = 4;
+  return { min: [min[0] - m, min[1] - m, min[2]], max: [max[0] + m, max[1] + m, max[2]] };
+}
+
+/** Riggens hål som varken har sondering eller egen startpunkt, som markörer i översikten. */
+function rigPlanPoints(): PlanPoint[] {
+  const shown = new Set([...state.sceneResults.map((r) => normalizeId(r.id)), ...state.applied.numbered.map((p) => normalizeId(p.id))]);
+  const out: PlanPoint[] = [];
+  for (const ref of state.rigRefs.values()) {
+    const h = ref.quality ?? ref.plan;
+    if (!h || shown.has(normalizeId(h.id))) continue;
+    shown.add(normalizeId(h.id));
+    out.push({ id: h.id, sourceId: h.id, e: h.start[0], n: h.start[1], rig: true });
+  }
+  return out;
+}
+
 function renderPlan(): void {
   const c = $("plan-container");
-  if (state.blastBearingFor !== state.meshName) {
-    state.blastBearing = loadBlastBearing(state.meshName);
-    state.blastBearingFor = state.meshName;
+  if (state.blastBearingFor !== siteKey()) {
+    state.blastBearing = loadBlastBearing(siteKey());
+    state.blastBearingFor = siteKey();
   }
   updatePlanToolbar();
-  if (!state.surface) {
-    c.innerHTML = `<p class="empty">Översikten visas när en yta är inläst.</p>`;
+  // Utan yta byggs ramen av hålen själva: sonderingar, riggens linjer och startpunkter.
+  const bounds = state.surface ? state.surface.bounds : holeBounds();
+  if (!bounds) {
+    c.innerHTML = `<p class="empty">Översikten visas när en yta, en borrplan eller en kvalitetslogg är inläst.</p>`;
     return;
   }
-  const points = pointsWithoutHole();
-  const bg = state.planBg && state.planBgSurface === state.surface ? { dataUrl: state.planBg } : null;
+  const points = [...pointsWithoutHole(), ...rigPlanPoints()];
+  const bg = state.surface && state.planBg && state.planBgSurface === state.surface ? { dataUrl: state.planBg } : null;
   // Ramen följer modellens verkliga utbredning i den vridna vyn, inte dess rektangel i E N.
-  const extent = state.mesh ? rotatedExtent(state.mesh.positions, state.surface.bounds, state.blastBearing, 4) : null;
-  const frame = planFrame(state.surface.bounds, state.blastBearing, 3, extent);
-  c.innerHTML = renderPlanSvg(state.results, state.opts, state.surface.bounds, bg, state.selectedId, {
+  const extent = state.surface && state.mesh ? rotatedExtent(state.mesh.positions, bounds, state.blastBearing, 4) : null;
+  const frame = planFrame(bounds, state.blastBearing, 3, extent);
+  const toPlanLine = (l: { id: string; start: Vec3; end: Vec3 }) => ({ id: l.id, e0: l.start[0], n0: l.start[1], e1: l.end[0], n1: l.end[1] });
+  c.innerHTML = renderPlanSvg(state.sceneResults, state.opts, bounds, bg, state.selectedId, {
     bearing: state.blastBearing,
     points,
     sourceIds: state.sourceIds,
     numbering: state.numbering !== null,
     extent,
+    rigLines: { plan: rigLines("plan").map(toPlanLine), quality: rigLines("quality").map(toPlanLine) },
+    modelFrame: state.surface !== null,
   });
   const svg = c.querySelector("svg");
   if (!svg) return;
@@ -652,6 +698,8 @@ function renderPlan(): void {
   for (const g of c.querySelectorAll<SVGGElement>("g.plan-hole, g.plan-point")) {
     g.addEventListener("click", (e) => {
       if (state.drawingDirection || planDragged) return;
+      // Riggens markörer kan inte numreras om; de har inget i startpunktsfilen att döpa om.
+      if (g.classList.contains("plan-rig")) return;
       if (state.numbering) {
         e.stopPropagation();
         numberPoint(g.dataset.source ?? "");

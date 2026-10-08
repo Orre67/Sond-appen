@@ -75,3 +75,22 @@ describe("översikt", () => {
     expect(phone).toContain('r="1.00"');
   });
 });
+
+describe("översikt utan ytmodell", () => {
+  it("riggens linjer ritas och modellramen kan stängas av", () => {
+    const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, {
+      modelFrame: false,
+      points: [{ id: "12", sourceId: "12", e: 110, n: 205, rig: true }],
+      rigLines: {
+        plan: [{ id: "12", e0: 110, n0: 205, e1: 112, n1: 215 }],
+        quality: [{ id: "12", e0: 110.2, n0: 205.1, e1: 112.4, n1: 215.3 }],
+      },
+    });
+    expect(svg).toContain('class="plan-rig-line plan"');
+    expect(svg).toContain('class="plan-rig-line quality"');
+    expect(svg).toContain('class="plan-point plan-rig"');
+    expect(svg).not.toContain('stroke-dasharray="0.6 0.4"');
+    const framed = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, {});
+    expect(framed).toContain('stroke-dasharray="0.6 0.4"');
+  });
+});

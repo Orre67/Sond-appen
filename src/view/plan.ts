@@ -13,6 +13,17 @@ export interface PlanPoint {
   sourceId: string;
   e: number;
   n: number;
+  /** Från riggens plan eller logg, inte från startpunktsfilen: kan inte numreras om. */
+  rig?: boolean;
+}
+
+/** En rak linje från riggen sedd uppifrån. */
+export interface PlanLine {
+  id: string;
+  e0: number;
+  n0: number;
+  e1: number;
+  n1: number;
 }
 
 export interface PlanExtras {
@@ -34,6 +45,10 @@ export interface PlanExtras {
   viewport: { x: number; y: number; w: number; h: number } | null;
   /** Norrpil och skalstock. Avstängda på telefonen, där de bara flyter löst över bilden. */
   northAndScale: boolean;
+  /** Riggens raka linjer sedda uppifrån: planen prickad grå, loggen blå. */
+  rigLines: { plan: PlanLine[]; quality: PlanLine[] };
+  /** Streckad ram runt modellens rektangel när ortofoto saknas. Av när ingen modell finns. */
+  modelFrame: boolean;
 }
 
 /** Utbredning i den vridna ramen, i meter kring modellens centrum. */
@@ -143,6 +158,8 @@ const DEFAULT_EXTRAS: PlanExtras = {
   pixelScale: null,
   viewport: null,
   northAndScale: true,
+  rigLines: { plan: [], quality: [] },
+  modelFrame: true,
 };
 
 /**
@@ -179,7 +196,7 @@ export function renderPlanSvg(
   parts.push(`<g transform="translate(${f(c.x)},${f(c.y)}) rotate(${f(-B)})">`);
   if (bg) {
     parts.push(`<image href="${bg.dataUrl}" x="${f(-bw / 2)}" y="${f(-bh / 2)}" width="${f(bw)}" height="${f(bh)}" preserveAspectRatio="none"/>`);
-  } else {
+  } else if (ex.modelFrame) {
     parts.push(
       `<rect x="${f(-bw / 2)}" y="${f(-bh / 2)}" width="${f(bw)}" height="${f(bh)}" fill="none" stroke="#999" stroke-width="0.15" stroke-dasharray="0.6 0.4"/>`,
     );
@@ -200,6 +217,15 @@ export function renderPlanSvg(
     `<text x="${f(x)}" y="${f(y - sz(8, 0.9))}" font-size="${f(fontL)}" font-weight="700" text-anchor="middle" fill="${INK}" stroke="#fff" stroke-width="${f(sz(2.5, 0.22))}" paint-order="stroke">${escapeXml(text)}</text>`;
   const sourceLabel = (x: number, y: number, text: string) =>
     `<text x="${f(x)}" y="${f(y + sz(15, 1.6))}" font-size="${f(fontS)}" text-anchor="middle" fill="#666" stroke="#fff" stroke-width="${f(sz(2, 0.18))}" paint-order="stroke">(${escapeXml(text)})</text>`;
+
+  // Riggens linjer sedda uppifrån, bakom hålen: planen prickad grå, loggen blå.
+  const rigLine = (kind: string, l: PlanLine, color: string, dash: string | null) => {
+    const a = P(l.e0, l.n0);
+    const b = P(l.e1, l.n1);
+    return `<line class="plan-rig-line ${kind}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}" stroke="${color}" stroke-width="${f(traceW)}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`;
+  };
+  for (const l of ex.rigLines.plan) parts.push(rigLine("plan", l, "#8a8f99", `${f(sz(2, 0.25))} ${f(sz(3, 0.35))}`));
+  for (const l of ex.rigLines.quality) parts.push(rigLine("quality", l, "#2b6cb0", null));
 
   for (const r of results) {
     const sel = r.id === selectedId;
@@ -224,8 +250,8 @@ export function renderPlanSvg(
   // Startpunkter utan beräknat hål: grå markör med nummer (utan sondering), eller ihålig utan nummer
   for (const p of ex.points) {
     const k = P(p.e, p.n);
-    parts.push(`<g class="plan-point" data-source="${escapeXml(p.sourceId)}" style="cursor:pointer">`);
-    parts.push(target(k.x, k.y));
+    parts.push(`<g class="plan-point${p.rig ? " plan-rig" : ""}" data-source="${escapeXml(p.sourceId)}" style="cursor:pointer">`);
+    if (!p.rig) parts.push(target(k.x, k.y));
     if (p.id !== null) {
       parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${MUTED}" stroke="#fff" stroke-width="${f(sz(1.2, 0.12))}"/>`);
       parts.push(label(k.x, k.y, p.id));

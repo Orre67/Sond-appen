@@ -203,7 +203,9 @@ Profile Number; loggar utan hålnamn (Sandvik) får namnet från närmaste planh
 inom en meter. Hål som saknar egen startpunkt får loggens start, annars planens, så att sonderingar
 kan kopplas utan startpunktsfil. I 3D visas planen grå och loggen blå, även utan ytmodell, och
 sonderingens bana i svart. I profilen ritas loggen streckad blå och planen prickad grå bakom
-sonderingen, och rubriken anger riggens längd, bäring och lutning.
+sonderingen, och rubriken anger riggens längd, bäring och lutning. Översikten fungerar också utan
+ytmodell: ramen byggs av hålen, planen och loggen ritas som linjer sedda uppifrån, hål med sondering
+som vanligt och hål utan sondering som grå markörer.
 
 ## Tester och röktest
 
