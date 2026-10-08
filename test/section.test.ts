@@ -179,6 +179,7 @@ describe("snittets riktning", () => {
     expect(sectionBearing(ne)).toBeCloseTo(60, 6);
     expect(holeInfoText(ne)).toContain("Bäring 60°");
     expect(holeInfoText(ne)).not.toContain("Snitt mot");
+    expect(renderProfileSvg(ne, s, { ...DEFAULT_OPTIONS, interval: 1, mode: "point" })).not.toContain('class="section-turned"');
   });
 
   it("vrids mot försättningen när den pekar mer än 45° åt ett annat håll, och rubriken säger det", () => {
@@ -194,5 +195,7 @@ describe("snittets riktning", () => {
     // I det vridna snittet pekar måtten åt slänthållet, inte längs hålet.
     const svg = renderProfileSvg(north, s, { ...DEFAULT_OPTIONS, interval: 1, mode: "point" });
     expect(svg).toContain("Snitt mot 90°");
+    // Rundpilen i bildens hörn visar att snittet är vridet.
+    expect(svg).toContain('class="section-turned"');
   });
 });

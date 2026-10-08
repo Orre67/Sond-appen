@@ -556,6 +556,34 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
   }
   parts.push(`</g>`);
 
+  // Vridet snitt: en rundpil med snittets bäring i övre vänstra hörnet, så att det syns i själva bilden.
+  const own = holeBearing(r);
+  if (own !== null && bearingDifference(own, bearing) > 0.5) {
+    const cx = ml + 18;
+    const cy = mt + 18;
+    const rad = 8;
+    const a0 = (-150 * Math.PI) / 180;
+    const a1 = (120 * Math.PI) / 180;
+    const sx = cx + rad * Math.cos(a0);
+    const sy = cy + rad * Math.sin(a0);
+    const ex = cx + rad * Math.cos(a1);
+    const ey = cy + rad * Math.sin(a1);
+    // Tangenten medurs i slutpunkten ger pilspetsens riktning.
+    const tx = -Math.sin(a1);
+    const ty = Math.cos(a1);
+    const nx = -ty;
+    const ny = tx;
+    const head = 4.5;
+    parts.push(
+      `<g class="section-turned" fill="none" stroke="#444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+        `<title>Snittet är vridet mot ${fmt(bearing, 0)}°, hålets bäring är ${fmt(own, 0)}°</title>` +
+        `<path d="M ${f1(sx)} ${f1(sy)} A ${rad} ${rad} 0 1 1 ${f1(ex)} ${f1(ey)}"/>` +
+        `<polyline points="${f1(ex - tx * head + nx * head)},${f1(ey - ty * head + ny * head)} ${f1(ex)},${f1(ey)} ${f1(ex - tx * head - nx * head)},${f1(ey - ty * head - ny * head)}"/>` +
+        `<text x="${f1(cx + rad + 6)}" y="${f1(cy + 4)}" font-size="11" fill="#444" stroke="none">Snitt mot ${fmt(bearing, 0)}°</text>` +
+        `</g>`,
+    );
+  }
+
   // Lager för avläsning med mus eller finger, fylls i av gränssnittet
   parts.push(`<g class="hover-layer" pointer-events="none"></g>`);
 
