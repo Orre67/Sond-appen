@@ -888,7 +888,8 @@ function renderProfileView(): void {
 
 /** Startpunkter som inte blev beräknade hål: utan sondering, eller utan nummer. */
 function pointsWithoutHole(): (PlanPoint & { z: number })[] {
-  const has = new Set(state.results.map((r) => r.id));
+  // Jämför mot det som visas: utan ytmodell finns inga resultat men väl hålbanor, och de ska inte dubbleras som punkter.
+  const has = new Set(state.sceneResults.map((r) => r.id));
   return [
     ...state.applied.numbered.filter((p) => !has.has(p.id)).map((p) => ({ id: p.id, sourceId: p.sourceId, e: p.e, n: p.n, z: p.z })),
     ...state.applied.unnumbered.map((p) => ({ id: null, sourceId: p.sourceId, e: p.e, n: p.n, z: p.z })),
