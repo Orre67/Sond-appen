@@ -7,12 +7,16 @@ import type { Vec3 } from "../geom/vec";
 import { CLASS_COLORS } from "./format";
 
 const HOLE_COLOR = 0x141414;
+const POINT_COLOR = 0xe08a1e;
 const RIG_PLAN_COLOR = 0xb0b7c0;
 const RIG_QUALITY_COLOR = 0x8a8f99;
 
 /** En rak linje från riggen, E N Z. */
 export interface RigLine {
+  /** Gällande nummer, för etiketter. */
   id: string;
+  /** Ursprungs-id, för markering och borttagning. */
+  source: string;
   start: Vec3;
   end: Vec3;
 }
@@ -25,6 +29,8 @@ export class Scene3D {
   readonly camera: THREE.PerspectiveCamera;
   readonly controls: OrbitControls;
   onSelect: ((id: string) => void) | null = null;
+  /** Klick på riggens hål eller en markör utan sondering: ursprungs-id. */
+  onSelectPoint: ((source: string) => void) | null = null;
 
   private container: HTMLElement;
   private origin: Vec3 = [0, 0, 0];
@@ -38,6 +44,10 @@ export class Scene3D {
   private rigGroup = new THREE.Group();
   private framedWithoutSurface = false;
   private pickables: THREE.Object3D[] = [];
+  /** Klickbara riggcylindrar och markörer, med ursprungs-id i userData.source. */
+  private sourcePickables: THREE.Object3D[] = [];
+  private sourceMaterials = new Map<string, { mat: THREE.MeshStandardMaterial; base: number }[]>();
+  private selectedSource: string | null = null;
   private holeMaterials = new Map<string, THREE.MeshStandardMaterial>();
   private holeMeshes = new Map<string, THREE.Mesh[]>();
   private selectedId: string | null = null;
@@ -193,6 +203,12 @@ export class Scene3D {
       this.rigGroup.remove(child);
       disposeObject(child);
     }
+    this.sourcePickables = this.sourcePickables.filter((o) => o.userData.kind !== "rig");
+    for (const [source, mats] of this.sourceMaterials) {
+      const rest = mats.filter((m) => m.base !== RIG_QUALITY_COLOR);
+      if (rest.length) this.sourceMaterials.set(source, rest);
+      else this.sourceMaterials.delete(source);
+    }
     const o = this.origin;
     const L = (p: Vec3) => new THREE.Vector3(p[0] - o[0], p[1] - o[1], p[2] - o[2]);
     const addLines = (lines: RigLine[], color: number, opacity: number) => {
@@ -209,10 +225,14 @@ export class Scene3D {
     };
     addLines(plan, RIG_PLAN_COLOR, 0.85);
     // Loggens hål som cylindrar, lika tjocka som de sonderade men grå, så att de två går att jämföra i samma bild.
-    const mat = new THREE.MeshStandardMaterial({ color: RIG_QUALITY_COLOR, roughness: 0.6 });
     for (const l of quality) {
-      this.rigGroup.add(cylinderBetween(L(l.start), L(l.end), 0.09, mat));
+      const mat = new THREE.MeshStandardMaterial({ color: RIG_QUALITY_COLOR, roughness: 0.6 });
+      const cyl = cylinderBetween(L(l.start), L(l.end), 0.09, mat);
+      cyl.userData.kind = "rig";
+      this.registerSource(l.source, cyl, mat, RIG_QUALITY_COLOR);
+      this.rigGroup.add(cyl);
     }
+    this.applySelection();
     this.requestRender();
   }
 
@@ -278,23 +298,30 @@ export class Scene3D {
   }
 
   /** Startpunkter som saknar sondering ritas som orange markörer med etikett, så att påhuggens läge mot ytan kan kontrolleras. */
-  setPoints(points: { id: string; e: number; n: number; z: number }[]): void {
+  setPoints(points: { id: string; source: string; e: number; n: number; z: number }[]): void {
     for (const child of [...this.pointsGroup.children]) {
       this.pointsGroup.remove(child);
       disposeObject(child);
     }
+    this.sourcePickables = this.sourcePickables.filter((o) => o.userData.kind !== "point");
+    for (const [source, mats] of this.sourceMaterials) {
+      const rest = mats.filter((m) => m.base !== POINT_COLOR);
+      if (rest.length) this.sourceMaterials.set(source, rest);
+      else this.sourceMaterials.delete(source);
+    }
     const o = this.origin;
     for (const p of points) {
-      const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(0.28, 16, 12),
-        new THREE.MeshStandardMaterial({ color: 0xe08a1e, roughness: 0.5 }),
-      );
+      const mat = new THREE.MeshStandardMaterial({ color: POINT_COLOR, roughness: 0.5 });
+      const marker = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), mat);
       marker.position.set(p.e - o[0], p.n - o[1], p.z - o[2]);
+      marker.userData.kind = "point";
+      this.registerSource(p.source, marker, mat, POINT_COLOR);
       this.pointsGroup.add(marker);
       const label = makeLabel(p.id);
       label.position.copy(marker.position).add(new THREE.Vector3(0, 0, 1.1));
       this.pointsGroup.add(label);
     }
+    this.applySelection();
     this.requestRender();
   }
 
@@ -412,6 +439,28 @@ export class Scene3D {
       mat.color.setHex(sel ? SELECTED_COLOR : HOLE_COLOR);
       mat.emissive.setHex(sel ? 0x553300 : 0x000000);
     }
+    for (const [source, mats] of this.sourceMaterials) {
+      const sel = source === this.selectedSource;
+      for (const { mat, base } of mats) {
+        mat.color.setHex(sel ? SELECTED_COLOR : base);
+        mat.emissive.setHex(sel ? 0x553300 : 0x000000);
+      }
+    }
+  }
+
+  /** Markerar riggens hål eller en markör via ursprungs-id. */
+  selectSource(source: string | null): void {
+    this.selectedSource = source;
+    this.applySelection();
+    this.requestRender();
+  }
+
+  private registerSource(source: string, obj: THREE.Mesh, mat: THREE.MeshStandardMaterial, base: number): void {
+    obj.userData.source = source;
+    this.sourcePickables.push(obj);
+    const list = this.sourceMaterials.get(source) ?? [];
+    list.push({ mat, base });
+    this.sourceMaterials.set(source, list);
   }
 
   private pick(e: PointerEvent): void {
@@ -419,10 +468,12 @@ export class Scene3D {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hits = this.raycaster.intersectObjects(this.pickables, false);
+    const hits = this.raycaster.intersectObjects([...this.pickables, ...this.sourcePickables], false);
     if (hits.length > 0) {
-      const id = hits[0].object.userData.id as string;
+      const id = hits[0].object.userData.id as string | undefined;
+      const source = hits[0].object.userData.source as string | undefined;
       if (id && this.onSelect) this.onSelect(id);
+      else if (source && this.onSelectPoint) this.onSelectPoint(source);
     }
   }
 }

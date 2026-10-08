@@ -42,6 +42,12 @@
         </section>
         <section class="panel">
           <h2>4. Hål</h2>
+          <div class="toolbar compact">
+            <button id="undo" class="secondary" title="Inget att ångra" disabled>Ångra</button>
+            <button id="redo" class="secondary" title="Inget att göra om" disabled>Gör om</button>
+            <button id="hole-remove" class="secondary" title="Tar bort det markerade hålet ur beräkning, 3D, profiler, översikt och publicering. Markera i listan, översikten eller 3D. Delete-tangenten gör samma sak, Ctrl+Z ångrar." disabled>Ta bort hål</button>
+          </div>
+          <div id="undo-hint" class="hint"></div>
           <ul id="hole-list" class="hole-list"></ul>
           <div id="unmatched" class="hint"></div>
           <details id="removed-panel" class="removed" hidden>
@@ -120,8 +126,6 @@
             <button id="num-rest" class="secondary" title="Ger punkter utan nummer nästa lediga nummer, i filens ordning" disabled>Numrera onumrerade</button>
             <button id="num-clear" class="secondary" title="Tar bort alla nummer och startar numreringen från startvärdet">Nollställ numrering</button>
             <button id="num-reset" class="secondary" title="Återgår till numren i startpunktsfilen" disabled>Originalnummer</button>
-            <span class="sep"></span>
-            <button id="hole-remove" class="secondary" title="Tar bort det markerade hålet ur beräkning, 3D, profiler, översikt och publicering. Återställ i listan Borttagna hål under 4. Hål. Delete-tangenten gör samma sak." disabled>Ta bort hål</button>
             <span id="plan-hint" class="hint toolbar-hint"></span>
           </div>
           <div id="plan-container"><p class="empty">Översikten visas när en yta och startpunkter finns.</p></div>

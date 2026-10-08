@@ -566,3 +566,8 @@ button.small {
   padding: 2px 8px;
   font-size: 0.85em;
 }
+
+.toolbar.compact {
+  margin: 0 0 6px;
+  gap: 6px;
+}

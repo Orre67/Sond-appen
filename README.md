@@ -213,7 +213,15 @@ borrade; de tidigare listas som ersatta under "Borttagna hål". Hål med olika n
 inom 0,25 m, visas i översikten med siffrorna staplade och ett ×n vid markören, och hållistan anger
 "samma läge som". Ett markerat hål, i översikten eller hållistan, tas bort med knappen "Ta bort hål"
 eller Delete. Borttagna hål försvinner ur beräkning, 3D, profiler, översikt och publicering,
-sparas per plats i webbläsaren och kan återställas i listan.
+sparas per plats i webbläsaren och kan återställas i listan. Hål kan markeras i hållistan, i
+översikten och i 3D, där även riggens cylindrar och markörerna utan sondering går att klicka.
+
+**Ångra.** Allt användaren bestämmer, numrering, borttagna hål, skjutriktning, inställningar och
+visningsval, samlas i ett beslutsobjekt (`src/core/history.ts`). Varje ändring görs inom `apply()`
+som sparar en kopia före och efter, så Ctrl+Z ångrar och Ctrl+Y gör om, oavsett i vilken flik
+ändringen gjordes; knapparna under "4. Hål" visar vad nästa steg gör. Snabba ändringar i samma
+fält slås ihop till ett steg. Filinläsning ingår inte: läs in filen igen i stället. En ny funktion
+blir ångringsbar genom att lägga sina beslut i objektet och göra ändringen inom `apply()`.
 
 ## Tester och röktest
 

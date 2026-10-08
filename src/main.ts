@@ -5,6 +5,7 @@ import { toDxf } from "./core/dxf";
 import { checkCollars } from "./core/check";
 import { applyRenames, assignNumber, clearNumbers, numberUnnumbered, type Applied, type NamedPoint, type Renames } from "./core/numbering";
 import { linkHoles, replacedLogEntries, rigReferences, rigStartPoints, type RigReference } from "./core/project";
+import { History } from "./core/history";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions, type HoleResult, type RigLines } from "./geom/burden";
 import { autoBearingCorrection, describeCorrection, type AutoBearingCorrection } from "./geom/geodesy";
 import { buildHolePath, type HoleInput } from "./geom/hole";
@@ -33,7 +34,7 @@ import {
   signedDeg,
   type ProfileStyle,
 } from "./view/profile";
-import { Scene3D } from "./view/scene3d";
+import { Scene3D, type RigLine } from "./view/scene3d";
 import { renderTable } from "./view/table";
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -66,6 +67,8 @@ const state = {
   rigRefs: new Map<string, RigReference>(),
   files: [] as FileEntry[],
   opts: { ...DEFAULT_OPTIONS } as BurdenOptions,
+  /** Inställningsfältens värden vid senaste omräkning, underlag för ångra. */
+  form: {} as Record<string, string>,
   /** Automatisk bäringskorrektion: kryssrutan och underlaget för aktuell ytmodell och sonderingsdatum. */
   autoCorr: false,
   autoInfo: null as AutoBearingCorrection | null,
@@ -105,6 +108,7 @@ const state = {
 
 const scene = new Scene3D($("scene-container"));
 scene.onSelect = (id) => selectHole(id, true);
+scene.onSelectPoint = (source) => selectPoint(source);
 // Texturen läses in asynkront. Ortofotot och vyerna framifrån som renderats innan dess är svarta, så rita om.
 scene.onTextureLoaded = () => {
   state.planBg = null;
@@ -233,12 +237,12 @@ function rigLinesFor(id: string): RigLines | undefined {
 }
 
 /** Riggens linjer av ett slag, för 3D-vyn och översikten, märkta med hålets gällande nummer efter omnumrering. */
-function rigLines(kind: "plan" | "quality"): { id: string; start: Vec3; end: Vec3 }[] {
+function rigLines(kind: "plan" | "quality"): RigLine[] {
   const current = new Map(state.applied.numbered.map((p) => [normalizeId(p.sourceId), p.id]));
-  const out: { id: string; start: Vec3; end: Vec3 }[] = [];
+  const out: RigLine[] = [];
   for (const ref of state.rigRefs.values()) {
     const h = ref[kind];
-    if (h) out.push({ id: current.get(normalizeId(h.id)) ?? `(${h.id})`, start: h.start, end: h.end });
+    if (h) out.push({ id: current.get(normalizeId(h.id)) ?? `(${h.id})`, source: h.id, start: h.start, end: h.end });
   }
   return out;
 }
@@ -344,17 +348,23 @@ function saveRemoved(): void {
 function removeSelected(): void {
   const source = state.selectedId ? (state.sourceIds.get(state.selectedId) ?? state.selectedId) : state.selectedSource;
   if (!source) return;
-  state.removed.add(normalizeId(source));
-  state.selectedId = null;
-  state.selectedSource = null;
-  saveRemoved();
-  recompute();
+  history.apply(`ta bort hål ${source}`, () => {
+    state.removed.add(normalizeId(source));
+    state.selectedId = null;
+    state.selectedSource = null;
+    scene.select(null);
+    scene.selectSource(null);
+    saveRemoved();
+    recompute();
+  });
 }
 
 function restoreRemoved(key: string): void {
-  state.removed.delete(key);
-  saveRemoved();
-  recompute();
+  history.apply(`återställ hål ${key}`, () => {
+    state.removed.delete(key);
+    saveRemoved();
+    recompute();
+  });
 }
 
 /** Markerar en startpunkt utan beräknat hål i översikten, så att den kan tas bort. */
@@ -362,6 +372,7 @@ function selectPoint(source: string | null): void {
   state.selectedSource = source;
   state.selectedId = null;
   scene.select(null);
+  scene.selectSource(source);
   renderHoleList();
   renderPlan();
 }
@@ -400,6 +411,15 @@ function siteKey(): string {
   return state.meshName || [...state.rigFiles.values()][0]?.planName || "";
 }
 
+function saveBlastBearing(): void {
+  try {
+    if (state.blastBearing === null) localStorage.removeItem(bearingKey(siteKey()));
+    else localStorage.setItem(bearingKey(siteKey()), String(state.blastBearing));
+  } catch {
+    // Ingen lagring tillgänglig
+  }
+}
+
 function setBlastBearing(value: number | null): void {
   state.blastBearing = value;
   state.blastBearingFor = siteKey();
@@ -426,7 +446,21 @@ function renderFileStatus(): void {
 
 const AUTO_KEY = "sond.autoCorrection";
 const optIds = ["opt-interval", "opt-mode", "opt-start", "opt-free", "opt-fine", "opt-min", "opt-max", "opt-corr", "opt-auto", "opt-method"];
-for (const id of optIds) $(id).addEventListener("change", () => recompute());
+const OPTION_LABELS: Record<string, string> = {
+  "opt-interval": "måttsticka",
+  "opt-mode": "mätsätt",
+  "opt-start": "startdjup",
+  "opt-free": "fri 3D från djup",
+  "opt-fine": "söksteg",
+  "opt-min": "min försättning",
+  "opt-max": "max försättning",
+  "opt-corr": "bäringskorrektion",
+  "opt-auto": "automatisk bäringskorrektion",
+  "opt-method": "metod",
+};
+for (const id of optIds) {
+  $(id).addEventListener("change", () => history.apply(`inställning ${OPTION_LABELS[id] ?? id}`, () => recompute(), id));
+}
 try {
   $<HTMLInputElement>("opt-auto").checked = localStorage.getItem(AUTO_KEY) === "1";
 } catch {
@@ -440,7 +474,20 @@ $("opt-auto").addEventListener("change", () => {
   }
 });
 
+/** Ett inställningsfälts värde som text: kryssrutor som 1/0. */
+function fieldValue(id: string): string {
+  const el = $<HTMLInputElement | HTMLSelectElement>(id);
+  return el instanceof HTMLInputElement && el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value;
+}
+
+function setFieldValue(id: string, value: string): void {
+  const el = $<HTMLInputElement | HTMLSelectElement>(id);
+  if (el instanceof HTMLInputElement && el.type === "checkbox") el.checked = value === "1";
+  else el.value = value;
+}
+
 function readOptions(): BurdenOptions {
+  state.form = Object.fromEntries(optIds.map((id) => [id, fieldValue(id)]));
   const num = (id: string, fallback: number) => {
     const v = Number($<HTMLInputElement>(id).value.replace(",", "."));
     return Number.isFinite(v) ? v : fallback;
@@ -490,6 +537,72 @@ function renderAutoInfo(): void {
   }
   const prefix = state.autoCorr ? "Auto på: " : "Auto av, skulle ge: ";
   el.textContent = `${prefix}${describeCorrection(state.autoInfo)}. Tillämpad bäringskorrektion ${signedDeg(state.opts.bearingCorrection)}.`;
+}
+
+// ---------- Ångra ----------
+
+/** Allt användaren bestämt, i serialiserbar form. Nya beslut läggs till här och blir ångringsbara direkt. */
+interface Decisions {
+  renames: [string, string | null][];
+  removed: string[];
+  blastBearing: number | null;
+  form: Record<string, string>;
+  view: { showAll: boolean; showSkipped: boolean; showTrace: boolean; showSticks: boolean; showFront: boolean; mergeLabels: boolean };
+}
+
+function getDecisions(): Decisions {
+  return {
+    renames: [...state.renames],
+    removed: [...state.removed],
+    blastBearing: state.blastBearing,
+    form: { ...state.form },
+    view: {
+      showAll: state.showAll,
+      showSkipped: state.showSkipped,
+      showTrace: state.showTrace,
+      showSticks: state.showSticks,
+      showFront: state.showFront,
+      mergeLabels: state.mergeLabels,
+    },
+  };
+}
+
+function setDecisions(d: Decisions): void {
+  state.renames = new Map(d.renames);
+  state.removed = new Set(d.removed);
+  state.blastBearing = d.blastBearing;
+  state.blastBearingFor = siteKey();
+  for (const [id, v] of Object.entries(d.form)) setFieldValue(id, v);
+  state.showAll = d.view.showAll;
+  state.showSkipped = d.view.showSkipped;
+  state.showTrace = d.view.showTrace;
+  state.showSticks = d.view.showSticks;
+  state.showFront = d.view.showFront;
+  state.mergeLabels = d.view.mergeLabels;
+  $<HTMLInputElement>("show-all").checked = d.view.showAll;
+  $<HTMLInputElement>("show-skipped").checked = d.view.showSkipped;
+  $<HTMLInputElement>("show-trace").checked = d.view.showTrace;
+  $<HTMLInputElement>("show-sticks").checked = d.view.showSticks;
+  $<HTMLInputElement>("show-front").checked = d.view.showFront;
+  $<HTMLInputElement>("merge-labels").checked = d.view.mergeLabels;
+  state.numbering = null;
+  saveRenames();
+  saveRemoved();
+  saveBlastBearing();
+  recompute();
+}
+
+const history = new History<Decisions>(getDecisions, setDecisions);
+history.onChange = () => renderHistoryButtons();
+
+function renderHistoryButtons(): void {
+  const undo = $<HTMLButtonElement>("undo");
+  const redo = $<HTMLButtonElement>("redo");
+  undo.disabled = !history.canUndo;
+  redo.disabled = !history.canRedo;
+  undo.title = history.undoLabel ? `Ångra: ${history.undoLabel} (Ctrl+Z)` : "Inget att ångra";
+  redo.title = history.redoLabel ? `Gör om: ${history.redoLabel} (Ctrl+Y)` : "Inget att göra om";
+  $("undo-hint").textContent = history.undoLabel ? `Ångra: ${history.undoLabel}` : "";
 }
 
 // ---------- Beräkning ----------
@@ -552,7 +665,7 @@ function recompute(): void {
   }
   scene.setRigLines(planLines, qualityLines);
   scene.setResults(sceneResults, state.opts);
-  scene.setPoints(pointsWithoutHole().map((p) => ({ id: p.id ?? `(${p.sourceId})`, e: p.e, n: p.n, z: p.z })));
+  scene.setPoints(pointsWithoutHole().map((p) => ({ id: p.id ?? `(${p.sourceId})`, source: p.sourceId, e: p.e, n: p.n, z: p.z })));
   scene.select(state.selectedId);
   renderHoleList();
   renderWarnings();
@@ -602,7 +715,10 @@ function renderRemovedPanel(): void {
   for (const b of ul.querySelectorAll<HTMLButtonElement>("button[data-restore]")) {
     b.addEventListener("click", () => restoreRemoved(b.dataset.restore ?? ""));
   }
-  $<HTMLButtonElement>("hole-remove").disabled = !(state.selectedId || state.selectedSource);
+  const btn = $<HTMLButtonElement>("hole-remove");
+  const chosen = state.selectedId ?? state.selectedSource;
+  btn.disabled = !chosen;
+  btn.textContent = chosen ? `Ta bort hål ${chosen}` : "Ta bort hål";
 }
 
 function renderHoleList(): void {
@@ -648,6 +764,7 @@ function selectHole(id: string | null, focus3d: boolean): void {
   state.selectedId = id;
   state.selectedSource = null;
   scene.select(id);
+  scene.selectSource(null);
   const r = state.results.find((x) => x.id === id);
   if (focus3d && r) scene.focusHole(r);
   renderHoleList();
@@ -664,7 +781,18 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowLeft") stepHole(-1);
   if (e.key === "ArrowRight") stepHole(1);
   if (e.key === "Delete") removeSelected();
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) history.redo();
+    else history.undo();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+    e.preventDefault();
+    history.redo();
+  }
 });
+$("undo").addEventListener("click", () => history.undo());
+$("redo").addEventListener("click", () => history.redo());
 
 function stepHole(delta: number): void {
   if (state.results.length === 0) return;
@@ -673,31 +801,25 @@ function stepHole(delta: number): void {
   selectHole(state.results[j].id, false);
 }
 
-$<HTMLInputElement>("show-all").addEventListener("change", (e) => {
-  state.showAll = (e.target as HTMLInputElement).checked;
-  renderProfileView();
-  renderTableView();
-});
-$<HTMLInputElement>("show-skipped").addEventListener("change", (e) => {
-  state.showSkipped = (e.target as HTMLInputElement).checked;
-  renderProfileView();
-});
-$<HTMLInputElement>("show-trace").addEventListener("change", (e) => {
-  state.showTrace = (e.target as HTMLInputElement).checked;
-  renderProfileView();
-});
-$<HTMLInputElement>("show-sticks").addEventListener("change", (e) => {
-  state.showSticks = (e.target as HTMLInputElement).checked;
-  renderProfileView();
-});
-$<HTMLInputElement>("merge-labels").addEventListener("change", (e) => {
-  state.mergeLabels = (e.target as HTMLInputElement).checked;
-  renderProfileView();
-});
-$<HTMLInputElement>("show-front").addEventListener("change", (e) => {
-  state.showFront = (e.target as HTMLInputElement).checked;
-  renderProfileView();
-});
+// Visningsvalen är beslut som alla andra: ångringsbara, en kryssruta i taget.
+const VIEW_TOGGLES: [string, keyof Decisions["view"], string][] = [
+  ["show-all", "showAll", "visa alla"],
+  ["show-skipped", "showSkipped", "ovanför startdjup"],
+  ["show-trace", "showTrace", "ytspår"],
+  ["show-sticks", "showSticks", "stickor"],
+  ["merge-labels", "mergeLabels", "en siffra per ytpunkt"],
+  ["show-front", "showFront", "framifrån"],
+];
+for (const [id, key, label] of VIEW_TOGGLES) {
+  $<HTMLInputElement>(id).addEventListener("change", (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    history.apply(`visning: ${label} ${checked ? "på" : "av"}`, () => {
+      state[key] = checked;
+      renderProfileView();
+      if (key === "showAll") renderTableView();
+    });
+  });
+}
 
 // ---------- Vyer ----------
 
@@ -787,7 +909,7 @@ function renderPlan(): void {
   // Ramen följer modellens verkliga utbredning i den vridna vyn, inte dess rektangel i E N.
   const extent = state.surface && state.mesh ? rotatedExtent(state.mesh.positions, bounds, state.blastBearing, 4) : null;
   const frame = planFrame(bounds, state.blastBearing, 3, extent);
-  const toPlanLine = (l: { id: string; start: Vec3; end: Vec3 }) => ({ id: l.id, e0: l.start[0], n0: l.start[1], e1: l.end[0], n1: l.end[1] });
+  const toPlanLine = (l: RigLine) => ({ id: l.id, e0: l.start[0], n0: l.start[1], e1: l.end[0], n1: l.end[1] });
   c.innerHTML = renderPlanSvg(state.sceneResults, state.opts, bounds, bg, state.selectedId, {
     bearing: state.blastBearing,
     points,
@@ -884,10 +1006,13 @@ function attachPlanNavigation(svg: SVGSVGElement, frame: PlanFrame): void {
 /** Numreringsläge: klickad punkt får nästa nummer, upptagna nummer hoppas över. */
 function numberPoint(sourceId: string): void {
   if (!state.numbering || !sourceId) return;
-  const n = assignNumber(state.renames, basePoints(), sourceId, state.numbering.next);
-  state.numbering.next = n + 1;
-  saveRenames();
-  recompute();
+  const numbering = state.numbering;
+  history.apply(`numrera hål ${sourceId}`, () => {
+    const n = assignNumber(state.renames, basePoints(), sourceId, numbering.next);
+    numbering.next = n + 1;
+    saveRenames();
+    recompute();
+  });
 }
 
 function numberFrom(): number {
@@ -927,7 +1052,8 @@ function attachDirectionDrawing(svg: SVGSVGElement, F: PlanFrame): void {
     const [e0, n0] = F.toWorld(s[0], s[1]);
     const [e1, n1] = F.toWorld(p[0], p[1]);
     if (Math.hypot(e1 - e0, n1 - n0) < 1) return; // för kort för att vara en riktning
-    setBlastBearing(blastBearingFromLine(e0, n0, e1, n1));
+    const drawn = blastBearingFromLine(e0, n0, e1, n1);
+    history.apply(`skjutriktning ${drawn}°`, () => setBlastBearing(drawn));
     state.drawingDirection = false;
     renderPlan();
   };
@@ -967,8 +1093,11 @@ $("plan-fit").addEventListener("click", () => {
 $<HTMLInputElement>("blast-bearing").addEventListener("change", (e) => {
   const v = (e.target as HTMLInputElement).value.trim();
   const n = Number(v);
-  setBlastBearing(v === "" || !Number.isFinite(n) ? null : ((Math.round(n) % 360) + 360) % 360);
-  renderPlan();
+  const value = v === "" || !Number.isFinite(n) ? null : ((Math.round(n) % 360) + 360) % 360;
+  history.apply(value === null ? "skjutriktning borttagen" : `skjutriktning ${value}°`, () => {
+    setBlastBearing(value);
+    renderPlan();
+  }, "blast");
 });
 $("blast-draw").addEventListener("click", () => {
   state.drawingDirection = !state.drawingDirection;
@@ -981,23 +1110,30 @@ $("num-start").addEventListener("click", () => {
   renderPlan();
 });
 $("num-rest").addEventListener("click", () => {
-  numberUnnumbered(state.renames, basePoints());
-  saveRenames();
-  recompute();
+  history.apply("numrera onumrerade", () => {
+    numberUnnumbered(state.renames, basePoints());
+    saveRenames();
+    recompute();
+  });
 });
 $("num-clear").addEventListener("click", () => {
-  clearNumbers(state.renames, basePoints());
-  saveRenames();
+  history.apply("nollställ numrering", () => {
+    clearNumbers(state.renames, basePoints());
+    saveRenames();
+    recompute();
+  });
   state.numbering = { next: numberFrom() };
   state.drawingDirection = false;
-  recompute();
+  renderPlan();
 });
 $("hole-remove").addEventListener("click", () => removeSelected());
 $("num-reset").addEventListener("click", () => {
-  state.renames = new Map();
-  saveRenames();
-  state.numbering = null;
-  recompute();
+  history.apply("originalnummer", () => {
+    state.renames = new Map();
+    saveRenames();
+    state.numbering = null;
+    recompute();
+  });
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && (state.numbering || state.drawingDirection)) {
