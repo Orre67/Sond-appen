@@ -636,8 +636,9 @@ function recompute(): void {
   state.autoInfo = computeAutoInfo();
   state.opts = readOptions();
   renderAutoInfo();
-  // Borttagna hål filtreras bort ur alla källor innan något annat händer.
-  const profiles = [...state.profiles.values()].flat().filter((p) => !state.removed.has(normalizeId(p.id)));
+  // Borttagna hål filtreras bort ur startpunkter och rigg. Sonderingen rörs inte: dess nummer är gällande
+  // nummer, och efter omnumrering kan det tillhöra en annan punkt än den borttagna.
+  const profiles = [...state.profiles.values()].flat();
   // Riggens plan och logg matchas mot startpunktsfilens ursprungliga nummer och ger startpunkter för hål som saknas där.
   // Omnumreringen gäller sedan alla punkter lika, från fil och från rigg.
   state.rigRefs = rigReferences([...state.rigFiles.values()], activePoints());
@@ -729,6 +730,7 @@ function renderRemovedPanel(): void {
   const manual = [...state.removed].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   const replaced = replacedLogEntries([...state.rigFiles.values()]);
   panel.hidden = manual.length === 0 && replaced.length === 0;
+  if (!panel.hidden) panel.open = true;
   $("removed-summary").textContent = `Borttagna hål (${manual.length + replaced.length})`;
   ul.innerHTML = [
     ...manual.map((k) => `<li><b>${esc(k)}</b><span>borttaget</span><button class="secondary small" data-restore="${esc(k)}">Återställ</button></li>`),
@@ -773,6 +775,9 @@ function renderHoleList(): void {
   if (state.unmatchedPoints.length) unmatched.push(`Startpunkter utan sondering: ${state.unmatchedPoints.join(", ")}`);
   if (state.unmatchedProfiles.length) unmatched.push(`Sondering utan startpunkt: ${state.unmatchedProfiles.join(", ")}`);
   if (state.applied.unnumbered.length) unmatched.push(`Utan nummer: ${state.applied.unnumbered.length} startpunkter (numrera i Översikt)`);
+  // Sparade beslut som styr vad som visas: de ligger kvar i webbläsaren mellan sessionerna och ska aldrig vara osynliga.
+  if (state.removed.size) unmatched.push(`Borttagna hål: ${[...state.removed].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(", ")} (återställ nedan)`);
+  if (state.renames.size) unmatched.push(`Omnumrering aktiv för ${state.renames.size} startpunkter (Originalnummer i Översikt tar bort den)`);
   if (state.results.length === 0) {
     const missing: string[] = [];
     if (!state.surface) missing.push("yta");
