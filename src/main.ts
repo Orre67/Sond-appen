@@ -1285,9 +1285,14 @@ async function shareToMobile(): Promise<void> {
     $("share-result").classList.remove("hidden");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Fel nyckel: glöm den sparade så att nästa försök frågar igen
-    if (/nyckel/i.test(msg)) localStorage.removeItem(SHARE_KEY_STORAGE);
-    alert(`Publiceringen misslyckades: ${msg}`);
+    // Fel nyckel: servern svarar "Fel delningsnyckel", men Blob-klienten rapporterar det bara som att
+    // uppladdningsnyckeln inte kunde hämtas. Glöm den sparade nyckeln i båda fallen så att nästa försök frågar igen.
+    const keyProblem = /nyckel|token/i.test(msg);
+    if (keyProblem) localStorage.removeItem(SHARE_KEY_STORAGE);
+    const hint = keyProblem
+      ? "\n\nTroligen fel delningsnyckel. Den sparade nyckeln är bortglömd: tryck Publicera igen och skriv in den på nytt, exakt som SHARE_KEY på servern."
+      : "";
+    alert(`Publiceringen misslyckades: ${msg}${hint}`);
   } finally {
     btn.disabled = false;
     btn.textContent = "Publicera";
