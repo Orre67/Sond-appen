@@ -35,6 +35,11 @@ demoläget kan laddas med `?demo=/@fs/...&files=...`. Headless-kontroller skrivs
 puppeteer-skript som laddar demoläget, klickar och läser DOM; `out/` är gitignorerat och
 lämpligt för skärmdumpar.
 
+Kontrollera före varje headless-körning att servern serverar aktuell kod, till exempel
+`curl -s http://127.0.0.1:5173/src/main.ts | grep -c <ny sträng>`. Vites filbevakning kan dö
+tyst på Windows; då serveras gammal kod tills servern startas om (pid via `netstat -ano`,
+stoppa med `Stop-Process`).
+
 ## Regler för koden
 
 - All beräkning sker i webbläsaren. Telefonen (`mobil.html`, `src/mobil.ts`) har ingen
