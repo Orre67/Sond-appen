@@ -3,6 +3,10 @@
 Vad appen gör, hur den körs och var allt ligger står i [README.md](README.md). Den här filen
 handlar om hur vi arbetar i repot och vilka regler som gäller när något byggs vidare.
 
+**Pågående översyn:** hålens identitet över txt, plan och logg, nycklarna för sparade beslut,
+ångra och översikten ska struktureras om. Läs [docs/HANDOFF-2026-10-09.md](docs/HANDOFF-2026-10-09.md)
+innan du rör `recompute()`, `project.ts`, `numbering.ts` eller `plan.ts`.
+
 ## Så arbetar Oscar
 
 - Oscar skriver på svenska och vill ha svar på svenska. Kodkommentarer, commit-meddelanden,
