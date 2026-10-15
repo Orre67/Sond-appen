@@ -62,7 +62,15 @@ function render(): void {
     // Snittet ritas i rutans egen storlek så att det fyller skärmen oavsett telefon och vridning.
     const width = Math.max(240, Math.round(view.clientWidth));
     const height = Math.max(320, Math.round(view.clientHeight));
-    const drawn = drawProfile(h.result, h.section, bundle.opts, { ...bundle.style, width, height, compact: true, showFront: false });
+    const drawn = drawProfile(h.result, h.section, bundle.opts, {
+      ...bundle.style,
+      toe: h.toe ?? null,
+      width,
+      height,
+      compact: true,
+      showFront: false,
+      showGhost: false,
+    });
     view.innerHTML = drawn.svg;
     samples = drawn.samples;
   } else {
@@ -164,6 +172,11 @@ function openHole(i: number): void {
 
 function step(delta: number): void {
   if (!bundle) return;
+  // Från översikten öppnar pilarna det markerade hålet, annars det första; stegningen börjar när en profil är öppen.
+  if (mode === "plan") {
+    openHole(index);
+    return;
+  }
   const n = bundle.holes.length;
   openHole((index + delta + n) % n);
 }

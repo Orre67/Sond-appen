@@ -33,6 +33,16 @@ export interface ProfileStyle {
   frontImage?: string;
   /** Kompakt text och marginaler, för stående format på telefon. */
   compact: boolean;
+  /** Rita hålbanan utan automatisk bäringskorrektion som spöklinje. Av på telefonen: sprängaren behöver inte den. */
+  showGhost: boolean;
+  /**
+   * Pallbotten: salvans lägsta hålbotten (Z). Anges den visas hela bergprofilen: fönstret sträcks ned
+   * till botten och ut till foten (style.toe, hittad i modellen med findToe), så att ett kort hål ses i
+   * hela slänten. Utan fot antas slänten inte flackare än 45°. Hål som redan når botten påverkas inte.
+   */
+  floorZ?: number | null;
+  /** Foten i snittet för det här hålet, från findToe(). null eller utelämnad: inte hittad. */
+  toe?: SectionPoint | null;
   /**
    * Mått längre än detta ritas kapade med pilspets, siffran visar ändå det verkliga värdet.
    * Undefined betyder största försättning plus 1,5 m. 0 stänger av kapningen.
@@ -49,6 +59,7 @@ export const DEFAULT_PROFILE_STYLE: ProfileStyle = {
   mergeLabelsWithin: 0.2,
   showFront: true,
   compact: false,
+  showGhost: true,
 };
 
 /** En tät provpunkt i bildkoordinater, för avläsning med mus eller finger. */
@@ -69,6 +80,12 @@ export interface ProfileRender {
   layout: ProfileLayout;
 }
 
+/** En punkt i snittet: s längs bäringen från påhugget, z absolut höjd. */
+export interface SectionPoint {
+  s: number;
+  z: number;
+}
+
 /** Råa utbredningar i meter för ett hål: snittfönster och sidledes läge, med marginaler. */
 export interface ProfileExtents {
   bearing: number;
@@ -79,6 +96,18 @@ export interface ProfileExtents {
   zMax: number;
   latMin: number;
   latMax: number;
+  /** Släntsidan av hålets egen bild, med marginal: hålet, måttlinjerna och siffrorna. Lika med sMax utan fönster nedåt. */
+  ownSMax: number;
+  /** Sant när fönstret sträckts ned under hålets egen bild (style.floorZ). */
+  floored: boolean;
+}
+
+/** Andel av ritområdets bredd till höger om påhugget när hela bergprofilen visas. Oscar valde den efter hål 18 i Gillinge. */
+const RIGHT_SHARE = 0.3;
+
+/** Marginaler i meter runt hålets bild: s0 på hålsidan (djupsiffrorna), s1 på släntsidan (måttens siffror), z0 under, z1 över. */
+function pads(st: ProfileStyle) {
+  return st.compact ? { s0: 1.6, s1: 1.7, z0: 0.8, z1: 0.8 } : { s0: 2.5, s1: 2.0, z0: 1.5, z1: 2.0 };
 }
 
 /** Bildens uppbyggnad: snittfönster, skala och panelen för vyn framifrån. Allt i meter respektive bildpunkter. */
@@ -167,7 +196,7 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
     latMax = Math.max(latMax, -q.off);
   };
   for (const p of r.path.points) take(p);
-  if (r.ghost) for (const p of r.ghost.points) take(p);
+  if (r.ghost && st.showGhost) for (const p of r.ghost.points) take(p);
   for (const line of [r.reference?.plan, r.reference?.quality]) {
     if (line) {
       take(line.start);
@@ -188,17 +217,70 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
   }
   // s1 är släntsidan där siffrorna står till vänster om ändpunkterna och behöver plats.
   // s0 på hålsidan ger plats åt djupsiffrorna, som ritas inom ritområdet.
-  const pad = st.compact ? { s0: 1.6, s1: 1.7, z0: 0.8, z1: 0.8 } : { s0: 2.5, s1: 2.0, z0: 1.5, z1: 2.0 };
+  const pad = pads(st);
+  // Hela bergprofilen: ned till pallbotten och ut till foten när den hittats i modellen. Utan fot antas
+  // slänten inte flackare än 45°, lika mycket bredd som djup, så att den troligen syns ändå.
+  const floored = st.floorZ !== undefined && st.floorZ !== null && st.floorZ < zMin;
+  let sMaxOut = sMax;
+  let zMinOut = zMin;
+  if (floored) {
+    const floorZ = st.floorZ as number;
+    if (st.toe) {
+      sMaxOut = Math.max(sMax, st.toe.s);
+      zMinOut = Math.min(floorZ, st.toe.z);
+    } else {
+      sMaxOut = sMax + (zMin - floorZ);
+      zMinOut = floorZ;
+    }
+  }
   return {
     bearing,
     frame,
     sMin: sMin - pad.s0,
-    sMax: sMax + pad.s1,
-    zMin: zMin - pad.z0,
+    sMax: sMaxOut + pad.s1,
+    zMin: zMinOut - pad.z0,
     zMax: zMax + pad.z1,
     latMin: Math.min(latMin - 1.0, -2.0),
     latMax: Math.max(latMax + 1.0, 2.0),
+    ownSMax: sMax + pad.s1,
+    floored,
   };
+}
+
+/**
+ * Foten i snittet: den första punkten, räknat från hålet ut mot stuffen, där bergytan kommer ned till
+ * pallbottens nivå (style.floorZ, inom 3 m under och 2 m över). Snittet tas ur modellen i ett brett
+ * sökfönster. null när fönstret inte sträcks ned alls, eller när ingen sådan punkt finns i modellen.
+ * Resultatet ges som style.toe till profileExtents och följer med per hål till telefonen.
+ */
+export function findToe(r: HoleResult, surface: Surface, opts: BurdenOptions, style: Partial<ProfileStyle> = {}): SectionPoint | null {
+  const st = { ...DEFAULT_PROFILE_STYLE, ...style };
+  if (st.floorZ === undefined || st.floorZ === null) return null;
+  const floorZ = st.floorZ;
+  const own = profileExtents(r, opts, { ...st, floorZ: null });
+  if (!profileExtents(r, opts, { ...st, toe: null }).floored) return null;
+  // Sökfönstret räcker ut till tre gånger pallhöjden; flackare slänter än ca 20° täcks inte.
+  const search = { sMin: own.sMin, sMax: own.sMax + 3 * (own.zMax - floorZ) + 5, zMin: floorZ - 3, zMax: own.zMax };
+  const segs = sectionSegments(surface, own.frame, search);
+  const zLo = floorZ - 3;
+  const zHi = floorZ + 2;
+  let best: SectionPoint | null = null;
+  const consider = (s: number, z: number) => {
+    if (z >= zLo && z <= zHi && (!best || s < best.s)) best = { s, z };
+  };
+  for (let i = 0; i + 3 < segs.length; i += 4) {
+    const [s0, z0, s1, z1] = [segs[i], segs[i + 1], segs[i + 2], segs[i + 3]];
+    consider(s0, z0);
+    consider(s1, z1);
+    // Stora trianglar kan spänna över bandet: räkna med punkterna där segmentet korsar bandets kanter.
+    if (Math.abs(z1 - z0) > 1e-12) {
+      for (const zb of [zLo, zHi]) {
+        const t = (zb - z0) / (z1 - z0);
+        if (t > 0 && t < 1) consider(s0 + (s1 - s0) * t, zb);
+      }
+    }
+  }
+  return best;
 }
 
 function margins(st: ProfileStyle) {
@@ -210,19 +292,34 @@ export function profileLayout(r: HoleResult, opts: BurdenOptions, style: Partial
   const W = st.width;
   const H = st.height;
   const E = profileExtents(r, opts, st);
-  const { sMin, sMax, zMin, zMax } = E;
-  let { latMin, latMax } = E;
+  const { zMin, zMax } = E;
+  let { sMin, sMax, latMin, latMax } = E;
   const { ml, mr, mt, mb } = margins(st);
   const gap = st.showFront ? 16 : 0;
   const fwMin = st.showFront ? 150 : 0;
   const fwMax = st.showFront ? Math.round(W * 0.34) : 0;
   const plotH = H - mt - mb;
   const kH = plotH / (zMax - zMin);
-  // Snittet får den skala höjden tillåter; bredd som blir över går till vyn framifrån.
-  const leftover = W - ml - mr - gap - (sMax - sMin) * kH;
+  // Snittet får den skala höjden tillåter; bredd som hålets egen bild lämnar över går till vyn framifrån.
+  const leftover = W - ml - mr - gap - (E.ownSMax - sMin) * kH;
   const fw = st.showFront ? Math.min(fwMax, Math.max(fwMin, leftover)) : 0;
   const plotW = W - ml - mr - gap - fw;
-  const k = Math.min(kH, plotW / (sMax - sMin));
+  let k: number;
+  if (E.floored) {
+    // Hela bergprofilen: höjden ger skalan, påhugget står RIGHT_SHARE av ritområdets bredd från högerkanten,
+    // med plats för djupsiffrorna och senare hålet bakom, och slänten visas så långt åt vänster som
+    // ritområdet rymmer. Foten får hamna utanför bilden.
+    const pad = pads(st);
+    const need = Math.max(st.compact ? 44 : 64, RIGHT_SHARE * plotW);
+    const sRaw = sMin + pad.s0;
+    const k0 = Math.min(kH, (plotW - need) / (E.ownSMax - sRaw));
+    const right = Math.max(pad.s0, need / k0);
+    k = Math.min(k0, plotW / (E.ownSMax - sRaw + right));
+    sMin = sRaw - right;
+    sMax = sMin + plotW / k;
+  } else {
+    k = Math.min(kH, plotW / (sMax - sMin));
+  }
   if (st.showFront) {
     // Panelen visar så många meter som dess bredd rymmer i samma skala, centrerat kring spåret.
     const latC = (latMin + latMax) / 2;
@@ -233,7 +330,7 @@ export function profileLayout(r: HoleResult, opts: BurdenOptions, style: Partial
   const padX = (plotW - (sMax - sMin) * k) / 2;
   const padY = (plotH - (zMax - zMin) * k) / 2;
   const fx0 = W - 8 - fw;
-  return { ...E, latMin, latMax, k, ml, mt, plotW, plotH, padX, padY, fx0, fw };
+  return { ...E, sMin, sMax, latMin, latMax, k, ml, mt, plotW, plotH, padX, padY, fx0, fw };
 }
 
 /** Geometri för en fristående vy framifrån som fyller en bild av given storlek. */
@@ -337,7 +434,16 @@ export function sectionWindowFor(
   margin = 3,
 ): SectionWindow & { frame: SectionFrame } {
   const E = profileExtents(r, opts, style);
-  return { frame: E.frame, sMin: E.sMin - margin, sMax: E.sMax + margin, zMin: E.zMin - margin, zMax: E.zMax + margin };
+  let { sMin, sMax } = E;
+  if (E.floored) {
+    // Telefonen visar så mycket slänt som dess skärm rymmer vid höjdens skala, stående eller liggande (bredd
+    // högst två gånger höjden): snittet skärs ut två gånger fönstrets höjd åt släntsidan, och RIGHT_SHARE av
+    // det bakom påhugget.
+    const h = E.zMax - E.zMin;
+    sMax = Math.max(sMax, sMin + 2 * h);
+    sMin -= RIGHT_SHARE * 2 * h;
+  }
+  return { frame: E.frame, sMin: sMin - margin, sMax: sMax + margin, zMin: E.zMin - margin, zMax: E.zMax + margin };
 }
 
 /**
@@ -527,7 +633,7 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
   }
 
   // Hålbanan utan automatisk bäringskorrektion, som jämförelse
-  if (r.ghost) {
+  if (r.ghost && st.showGhost) {
     const gp = r.ghost.points.map((p) => projectToSection(frame, p));
     parts.push(
       `<polyline points="${gp.map((p) => `${f1(X(p.s))},${f1(Y(p.z))}`).join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="1.4" stroke-dasharray="4 4" opacity="0.35" stroke-linejoin="round"/>`,
@@ -622,7 +728,7 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
 
   if (!st.compact) parts.push(`<text x="${ml}" y="${H - 10}" font-size="11" fill="#666">${footerText(r, opts, false)}</text>`);
 
-  if (st.showFront) parts.push(renderFrontPanel(r, opts, st.showTrace, L, Y, safeId, st.frontImage));
+  if (st.showFront) parts.push(renderFrontPanel(r, opts, st.showTrace, st.showGhost, L, Y, safeId, st.frontImage));
 
   parts.push(`</svg>`);
 
@@ -665,7 +771,7 @@ export function renderFrontSvg(
       parts.push(`<text x="${L.fx0}" y="${46 + i * 17}" font-size="12.5" fill="#444">${escapeXml(line)}</text>`);
     });
   }
-  parts.push(renderFrontPanel(r, opts, st.showTrace, L, Y, safeId, frontImage, false));
+  parts.push(renderFrontPanel(r, opts, st.showTrace, st.showGhost, L, Y, safeId, frontImage, false));
   parts.push(`<g class="hover-layer" pointer-events="none"></g>`);
   if (!st.compact) parts.push(`<text x="${L.fx0}" y="${H - 10}" font-size="11" fill="#666">${footerText(r, opts, false)}</text>`);
   parts.push(`</svg>`);
@@ -681,6 +787,7 @@ function renderFrontPanel(
   r: HoleResult,
   opts: BurdenOptions,
   showTrace: boolean,
+  showGhost: boolean,
   G: FrontPanelGeom,
   Y: (z: number) => number,
   safeId: string,
@@ -708,7 +815,7 @@ function renderFrontPanel(
   const hole = r.path.points.map((p) => `${f1(FX(lateralOf(frame, p)))},${f1(Y(p[2]))}`);
   parts.push(`<polyline points="${hole.join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="1.6" stroke-dasharray="5 4" opacity="0.8"/>`);
   // Hålbanan utan automatisk bäringskorrektion: vridningen syns i sidled, alltså här och inte i snittet.
-  if (r.ghost) {
+  if (r.ghost && showGhost) {
     const ghost = r.ghost.points.map((p) => `${f1(FX(lateralOf(frame, p)))},${f1(Y(p[2]))}`);
     parts.push(`<polyline points="${ghost.join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="1.4" stroke-dasharray="3 4" opacity="0.4"/>`);
   }

@@ -24,6 +24,7 @@ import { dateFromFileName, suggestSalva } from "./core/catalog";
 import { attachHover } from "./view/hover";
 import { sectionSegments } from "./geom/section";
 import {
+  findToe,
   frontLayout,
   holeInfoText,
   profileLayout,
@@ -86,6 +87,8 @@ const state = {
   showSticks: true,
   showFront: true,
   mergeLabels: true,
+  /** Korta hål visar hela slänten: profilens fönster sträcks ned till salvans lägsta botten. */
+  showFloor: false,
   linkWarnings: [] as string[],
   unmatchedPoints: [] as string[],
   unmatchedProfiles: [] as string[],
@@ -571,7 +574,7 @@ interface Decisions {
   removed: string[];
   blastBearing: number | null;
   form: Record<string, string>;
-  view: { showAll: boolean; showSkipped: boolean; showTrace: boolean; showSticks: boolean; showFront: boolean; mergeLabels: boolean };
+  view: { showAll: boolean; showSkipped: boolean; showTrace: boolean; showSticks: boolean; showFront: boolean; mergeLabels: boolean; showFloor: boolean };
 }
 
 function getDecisions(): Decisions {
@@ -587,6 +590,7 @@ function getDecisions(): Decisions {
       showSticks: state.showSticks,
       showFront: state.showFront,
       mergeLabels: state.mergeLabels,
+      showFloor: state.showFloor,
     },
   };
 }
@@ -603,6 +607,8 @@ function setDecisions(d: Decisions): void {
   state.showSticks = d.view.showSticks;
   state.showFront = d.view.showFront;
   state.mergeLabels = d.view.mergeLabels;
+  state.showFloor = d.view.showFloor;
+  $<HTMLInputElement>("show-floor").checked = d.view.showFloor;
   $<HTMLInputElement>("show-all").checked = d.view.showAll;
   $<HTMLInputElement>("show-skipped").checked = d.view.showSkipped;
   $<HTMLInputElement>("show-trace").checked = d.view.showTrace;
@@ -838,6 +844,7 @@ const VIEW_TOGGLES: [string, keyof Decisions["view"], string][] = [
   ["show-sticks", "showSticks", "stickor"],
   ["merge-labels", "mergeLabels", "en siffra per ytpunkt"],
   ["show-front", "showFront", "framifrån"],
+  ["show-floor", "showFloor", "hela slänten"],
 ];
 for (const [id, key, label] of VIEW_TOGGLES) {
   $<HTMLInputElement>(id).addEventListener("change", (e) => {
@@ -859,12 +866,26 @@ function profileStyle(): Partial<ProfileStyle> {
     showSticks: state.showSticks,
     showFront: state.showFront,
     mergeLabelsWithin: state.mergeLabels ? 0.2 : 0,
+    floorZ: floorZ(),
   };
+}
+
+/** Salvans lägsta botten bland de beräknade hålen när "korta hål visar hela slänten" är på, annars null. */
+function floorZ(): number | null {
+  if (!state.showFloor) return null;
+  let z = Infinity;
+  for (const r of state.results) {
+    const last = r.path.points[r.path.points.length - 1];
+    if (last) z = Math.min(z, last[2]);
+  }
+  return Number.isFinite(z) ? z : null;
 }
 
 /** Stil för ett hål, med bilden av väggen framifrån renderad ur 3D-modellen. */
 function profileStyleFor(r: HoleResult): Partial<ProfileStyle> {
   const style = profileStyle();
+  // Foten hittas i modellen en gång här, så att snitt och vy framifrån får samma fönster.
+  if (style.floorZ !== null && state.surface) style.toe = findToe(r, state.surface, state.opts, style);
   if (!style.showFront) return style;
   try {
     const L = profileLayout(r, state.opts, style);
@@ -1343,17 +1364,22 @@ function buildShareBundle(salva: { site: string; date: string; note: string }): 
     showTrace: state.showTrace,
     showSticks: state.showSticks,
     mergeLabelsWithin: state.mergeLabels ? 0.2 : 0,
+    floorZ: floorZ(),
   };
+  // Telefonens ritsätt: kompakt, utan spöklinje. Snittet skärs ut med samma fönster som telefonen ritar med.
+  const phone = { ...style, compact: true, showGhost: false };
   const holes = state.results.map((r) => {
     // Ytans snitt med marginal: telefonen ritar snittet själv i sin egen skärmstorlek.
-    const win = sectionWindowFor(r, state.opts, { ...style, compact: true });
+    const toe = phone.floorZ !== null ? findToe(r, surface, state.opts, phone) : null;
+    const holeStyle = { ...phone, toe };
+    const win = sectionWindowFor(r, state.opts, holeStyle);
     const section = Array.from(sectionSegments(surface, win.frame, win));
     let frontSvg: string | null = null;
     try {
-      const L = frontLayout(r, state.opts, { width: 420, height: 620, compact: true, showTrace: state.showTrace, showSkipped: state.showSkipped });
+      const L = frontLayout(r, state.opts, { ...holeStyle, width: 420, height: 620 });
       // Lägre upplösning och JPEG-kvalitet än på skrivbordet: bilderna är nästan hela paketet som telefonen hämtar.
       const img = scene.renderFront(r.path.collar, L.frame.u, L.frame.n, L.latMin, L.latMax, L.zMin, L.zMax, Math.round(L.fw * 1.6), 0.72);
-      frontSvg = renderFrontSvg(r, state.opts, { compact: true, showTrace: state.showTrace }, L, img ?? undefined);
+      frontSvg = renderFrontSvg(r, state.opts, holeStyle, L, img ?? undefined);
     } catch (err) {
       console.warn(`Hål ${r.id}: ingen vy framifrån`, err);
     }
@@ -1363,8 +1389,10 @@ function buildShareBundle(salva: { site: string; date: string; note: string }): 
       minBurdenDepth: r.minBurdenDepth,
       cls: holeClass(r, state.opts),
       info: holeInfoText(r, undefined, state.opts.bearingCorrection),
-      result: r,
+      // Spökbanan ritas inte på telefonen och skickas därför inte.
+      result: { ...r, ghost: undefined },
       section,
+      toe,
       frontSvg,
     };
   });

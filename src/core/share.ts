@@ -1,7 +1,7 @@
 import type { BurdenClass, BurdenOptions, HoleResult } from "../geom/burden";
 import type { Bounds } from "../io/mesh";
 import type { PlanPoint, RotatedExtent } from "../view/plan";
-import type { ProfileStyle } from "../view/profile";
+import type { ProfileStyle, SectionPoint } from "../view/profile";
 import type { CatalogEntry } from "./catalog";
 
 /** Översikten uppifrån, i den orientering skrivbordet hade vid publiceringen. */
@@ -28,8 +28,8 @@ export interface ShareBundle {
   name: string;
   created: string;
   opts: BurdenOptions;
-  /** Ritval från skrivbordet som telefonen följer. */
-  style: Pick<ProfileStyle, "showSkipped" | "showTrace" | "showSticks" | "mergeLabelsWithin">;
+  /** Ritval från skrivbordet som telefonen följer. floorZ: fönstret ned till salvans lägsta botten, saknas i äldre paket. */
+  style: Pick<ProfileStyle, "showSkipped" | "showTrace" | "showSticks" | "mergeLabelsWithin"> & { floorZ?: number | null };
   /** Färgregeln i klartext, t.ex. "Rött < 1,5 m, blått > 3,5 m, från 1,0 m djup". */
   rule: string;
   /** Plats, datum och anteckning från publiceringsrutan (version 3). */
@@ -49,6 +49,8 @@ export interface ShareHole {
   result: HoleResult;
   /** Ytans snitt längs hålets bäring, [s0, z0, s1, z1, ...], med marginal runt det bilden behöver. */
   section: number[];
+  /** Foten i snittet när hela bergprofilen visas (style.floorZ), hittad i modellen vid publiceringen. */
+  toe?: SectionPoint | null;
   /** Väggen framifrån, stående format, med bild om den kunde renderas. */
   frontSvg: string | null;
 }

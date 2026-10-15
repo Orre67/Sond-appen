@@ -39,7 +39,16 @@ Flikar:
   renderad ur modellen, i samma höjdskala som snittet och med ytspåret, stickornas
   ytpunkter och hålet (streckat, bakom väggen) ovanpå. Meterskalor på kanterna: höjd på
   sidorna, sidledes läge från hålet längs nederkanten. Piltangenterna byter hål. "Visa alla"
-  staplar alla hål.
+  staplar alla hål. Fönstret passas normalt till varje hål för sig; kryssrutan "Korta hål visar
+  hela slänten" visar i stället hela bergprofilen: från ytan bakom påhugget ut till foten, och
+  från påhugget ned till pallbotten. Pallbotten är salvans lägsta hålbotten, och foten hittas i
+  modellen som den första punkten i snittet, räknat från hålet ut mot stuffen, där bergytan når
+  pallbottens nivå. Ett kort hål, till exempel där sonden stoppat, syns då på sin plats i hela
+  slänten. Höjden ger skalan: påhugget står 30 % av bredden från högerkanten, med plats för
+  djupsiffrorna och senare hålet bakom, och slänten visas så långt åt vänster som bilden räcker,
+  så foten kan hamna utanför på en smal skärm. Hittas ingen
+  fot antas slänten inte flackare än 45°. Hål som redan når botten ändras inte. Valet och foten
+  per hål följer med till telefonen vid publicering.
 - **3D**: ytan med textur, hålen och mätlinjerna. Klick på ett hål väljer det.
 - **Översikt**: salvan uppifrån på en ortofotobild av modellen, hålen färgade efter sin
   minsta försättning. Klick väljer hål.
@@ -76,6 +85,8 @@ i skärmens egen storlek, så bilden fyller skärmen oavsett modell och vridning
   står kvar när fingret lyfts.
 - Knappen "Framifrån" nere till höger växlar till väggen framifrån och tillbaka.
 - Svep åt höger ger nästa hål, svep åt vänster föregående. De två stora pilarna överst gör samma sak.
+  Från översikten öppnar pilarna det markerade hålet, annars det första.
+- Spöklinjen (hålbanan utan automatisk bäringskorrektion) ritas bara på skrivbordet.
 
 Under utveckling tar dev-servern emot paketen via `POST /api/share` och sparar dem i
 `out/share/`.
@@ -195,8 +206,8 @@ deras pilar i rummet, så att bäring 359 och 1 ger 0 och inte 180. Tangentmetod
 missvisningen ur WMM2025 minus meridiankonvergensen för SWEREF 99 TM, båda räknade ur ytmodellens
 mitt och sonderingsdatumet i DM4-filnamnet, så att hålen hamnar i rutnätets nord. I Norberg blir det
 omkring +6°. Fältet bredvid är ett tillägg för en uppmätt lokal avvikelse. När Auto är på ritas
-hålbanan utan korrektion som en tunn streckad spöklinje i profilen så att skillnaden syns, och
-profilens rubrik och telefonens infotext anger den tillämpade korrektionen. Lokal magnetisk störning
+hålbanan utan korrektion som en tunn streckad spöklinje i profilen på skrivbordet så att skillnaden
+syns, inte på telefonen, och profilens rubrik och telefonens infotext anger den tillämpade korrektionen. Lokal magnetisk störning
 från berg och rigg rättas inte. Tecknet bör kontrolleras mot riggens GNSS-bäring på några hål.
 
 **Rigg.** Borrplan (IREDES DRPPlan) och kvalitetslogg (IREDES DRPQual) från Epiroc, Sandvik eller

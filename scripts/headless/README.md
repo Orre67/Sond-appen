@@ -13,3 +13,5 @@ Kör med `node scripts/headless/<namn>.mjs`. Kontrollera först att servern serv
 - `dup-shot.mjs` Torphyttan utan yta: inga dubbletter mellan hål och punkter.
 - `bugg1-shot.mjs` Hakunge-filerna i demoläget. `prod-bugg1.mjs` samma mot produktionen via filväljaren.
 - `auto-shot.mjs` automatisk bäringskorrektion på/av med Torphyttan (kräver `out/demo-url.txt`).
+- `floor-shot.mjs` kryssrutan "Korta hål visar hela slänten" med Torphyttan: hålbanans höjd i bild per hål av/på, Ctrl+Z (kräver `out/demo-url.txt`).
+- `phone-floor-shot.mjs` publicerar Torphyttan med rutan på till dev-servern, kontrollerar paketet (floorZ, fot per hål, ingen spökbana) och telefonen: pil höger från översikten öppnar första hålet, skärmdump av kortaste hålet.
