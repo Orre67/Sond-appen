@@ -39,8 +39,8 @@ Flikar:
   renderad ur modellen, i samma höjdskala som snittet och med ytspåret, stickornas
   ytpunkter och hålet (streckat, bakom väggen) ovanpå. Meterskalor på kanterna: höjd på
   sidorna, sidledes läge från hålet längs nederkanten. Piltangenterna byter hål. "Visa alla"
-  staplar alla hål. Fönstret passas normalt till varje hål för sig; kryssrutan "Korta hål visar
-  hela slänten" visar i stället hela bergprofilen i salvans ram: i höjdled från salvans högsta
+  staplar alla hål. Kryssrutan "Korta hål visar hela slänten", på som standard, visar hela
+  bergprofilen i salvans ram; av passas fönstret till varje hål för sig. Ramen är: i höjdled från salvans högsta
   påhugg ned till pallbotten, salvans lägsta hålbotten, lika för alla hål, så att ett hål med
   lägre påhugg står lägre i bilden; i sidled från ytan bakom påhugget ut till foten. Foten hittas
   i modellen som den första punkten i snittet, räknat från hålet ut mot stuffen, där bergytan
@@ -51,6 +51,15 @@ Flikar:
   foten kan hamna utanför på en smal skärm. Ett hål som står lodrätt i snittet hamnar mitt i bilden.
   Hittas ingen fot antas slänten inte flackare än 45°. Valet, ramen och foten per hål följer
   med till telefonen vid publicering.
+  Raden framför: varje hål får hålet framför sig, det närmaste hålet inom 45° från rakt framåt
+  sett mot stuffen, i skjutriktningen när den finns och annars i hålets egen riktning mot stuffen.
+  Ett hål med ett hål framför sig mäter sin försättning mot det hålet där det ligger närmare än
+  stuffen: stickans värde blir kortaste 3D-avståndet till hålet framför, med samma färggränser,
+  och minsta försättning räknas om. Under hålet framförs sonderade slut, där sonden stoppat,
+  mäter stickorna mot stuffen igen. Hålet framför ritas svart och streckat, båda hålens nummer står
+  ovanför sina påhugg, och hålet framför står i
+  rubriken, "Hål 7 framför"; ytans värde finns kvar i resultatet. Första raden har inget hål
+  framför och mäter mot stuffen som förut. Allt följer med till telefonen.
 - **3D**: ytan med textur, hålen och mätlinjerna. Klick på ett hål väljer det.
 - **Översikt**: salvan uppifrån på en ortofotobild av modellen, hålen färgade efter sin
   minsta försättning. Klick väljer hål.
@@ -204,7 +213,8 @@ finns med som egen kolumn i tabellen och CSV-filen.
 Hålbanan byggs med medelvinkelmetoden: mellan två stationer används medelriktningen av
 deras pilar i rummet, så att bäring 359 och 1 ger 0 och inte 180. Tangentmetoden finns som val.
 
-**Bäring.** Sondens bäring är magnetisk. Kryssrutan Auto vid bäringskorrektionen lägger på
+**Bäring.** Sondens bäring är magnetisk. Kryssrutan Auto vid bäringskorrektionen, på som standard
+och sparad i webbläsaren, lägger på
 missvisningen ur WMM2025 minus meridiankonvergensen för SWEREF 99 TM, båda räknade ur ytmodellens
 mitt och sonderingsdatumet i DM4-filnamnet, så att hålen hamnar i rutnätets nord. I Norberg blir det
 omkring +6°. Fältet bredvid är ett tillägg för en uppmätt lokal avvikelse. När Auto är på ritas

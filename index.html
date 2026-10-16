@@ -34,7 +34,7 @@
             <label>Min försättning [m]<input id="opt-min" type="number" step="0.1" min="0" value="1.5" /></label>
             <label>Max försättning [m]<input id="opt-max" type="number" step="0.1" min="0" value="3.5" /></label>
             <label>Bäringskorrektion [°]<input id="opt-corr" type="number" step="0.5" value="0" /></label>
-            <label class="check" title="Lägger missvisning minus meridiankonvergens på fältet till vänster. Platsen tas ur ytmodellen, datumet ur sonderingsfilernas namn. Sondens bäring ska vara magnetisk."><input id="opt-auto" type="checkbox" /> Auto: missvisning − konvergens</label>
+            <label class="check" title="Lägger missvisning minus meridiankonvergens på fältet till vänster. Platsen tas ur ytmodellen, datumet ur sonderingsfilernas namn. Sondens bäring ska vara magnetisk."><input id="opt-auto" type="checkbox" checked /> Auto: missvisning − konvergens</label>
             <label>Metod<select id="opt-method"><option value="average">Medelvinkel</option><option value="tangent">Tangent</option></select></label>
           </div>
           <div id="auto-info" class="hint"></div>
@@ -107,7 +107,7 @@
             <label class="check"><input id="show-sticks" type="checkbox" checked /> Stickor</label>
             <label class="check" title="Mått som slutar i samma ytpunkt, inom 20 cm, får en gemensam siffra: den minsta"><input id="merge-labels" type="checkbox" checked /> En siffra per ytpunkt</label>
             <label class="check"><input id="show-front" type="checkbox" checked /> Framifrån</label>
-            <label class="check" title="Fönstret sträcks ned till salvans lägsta botten, så att ett kort hål visar hela slänten som ett fulldjupshål. Följer med till telefonen."><input id="show-floor" type="checkbox" /> Korta hål visar hela slänten</label>
+            <label class="check" title="Fönstret sträcks ned till salvans lägsta botten, så att ett kort hål visar hela slänten som ett fulldjupshål. Följer med till telefonen."><input id="show-floor" type="checkbox" checked /> Korta hål visar hela slänten</label>
             <span class="hint toolbar-hint">Dra med mus eller finger längs hålet för att läsa av måttet.</span>
           </div>
           <div id="profile-container" class="profile-container">

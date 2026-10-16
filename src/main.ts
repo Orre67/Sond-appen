@@ -9,6 +9,7 @@ import { History } from "./core/history";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions, type HoleResult, type RigLines } from "./geom/burden";
 import { autoBearingCorrection, describeCorrection, type AutoBearingCorrection } from "./geom/geodesy";
 import { buildHolePath, type HoleInput } from "./geom/hole";
+import { pairRows } from "./geom/rows";
 import { Surface } from "./geom/surface";
 import type { Vec3 } from "./geom/vec";
 import { parseDm4, type SondeProfile } from "./io/dm4";
@@ -88,7 +89,7 @@ const state = {
   showFront: true,
   mergeLabels: true,
   /** Korta hål visar hela slänten: profilens fönster sträcks ned till salvans lägsta botten. */
-  showFloor: false,
+  showFloor: true,
   linkWarnings: [] as string[],
   unmatchedPoints: [] as string[],
   unmatchedProfiles: [] as string[],
@@ -457,6 +458,20 @@ function setBlastBearing(value: number | null): void {
   } catch {
     // Ingen lagring tillgänglig
   }
+  // Skjutriktningen avgör vilket hål som ligger bakom och framför vilket, och därmed raden bakoms
+  // försättningar, så profiler, hållista och tabell ritas om.
+  pairRows(state.results, state.blastBearing, state.opts);
+  renderHoleList();
+  renderProfileView();
+  renderTableView();
+}
+
+/** Hämtar sparad skjutriktning för aktuell plats när platsen bytts, till exempel efter en ny ytmodell. */
+function syncBlastBearing(): void {
+  if (state.blastBearingFor !== siteKey()) {
+    state.blastBearing = loadBlastBearing(siteKey());
+    state.blastBearingFor = siteKey();
+  }
 }
 
 function renderFileStatus(): void {
@@ -489,7 +504,9 @@ for (const id of optIds) {
   $(id).addEventListener("change", () => history.apply(`inställning ${OPTION_LABELS[id] ?? id}`, () => recompute(), id));
 }
 try {
-  $<HTMLInputElement>("opt-auto").checked = localStorage.getItem(AUTO_KEY) === "1";
+  // På som standard; ett sparat val i webbläsaren gäller före.
+  const storedAuto = localStorage.getItem(AUTO_KEY);
+  $<HTMLInputElement>("opt-auto").checked = storedAuto === null ? true : storedAuto === "1";
 } catch {
   // Ingen lagring tillgänglig
 }
@@ -680,6 +697,9 @@ function recompute(): void {
   } else {
     state.results = [];
   }
+  // Raden bakom: varje hål får hålet bakom sig och avstånden dit, sett från skjutriktningen när den finns.
+  syncBlastBearing();
+  pairRows(state.results, state.blastBearing, state.opts);
   if (!state.results.some((r) => r.id === state.selectedId)) state.selectedId = state.results[0]?.id ?? null;
 
   // Utan yta visas ändå hålbanorna och riggens linjer i 3D, så att sondering och logg kan jämföras.
@@ -953,10 +973,7 @@ function holeBounds(): Bounds | null {
 
 function renderPlan(): void {
   const c = $("plan-container");
-  if (state.blastBearingFor !== siteKey()) {
-    state.blastBearing = loadBlastBearing(siteKey());
-    state.blastBearingFor = siteKey();
-  }
+  syncBlastBearing();
   updatePlanToolbar();
   // Utan yta byggs ramen av hålen själva: sonderingar, riggens linjer och startpunkter.
   const bounds = state.surface ? state.surface.bounds : holeBounds();

@@ -153,7 +153,7 @@ describe("snitt", () => {
     const all = [...renderProfileSvg(re, edgeSurface, edgeOpts, { mergeLabelsWithin: 0 }).matchAll(labelRe)].map((m) => m[1]);
     expect(all.sort()).toEqual(["2,24", "2,83"]);
     // En linje per ytpunkt: båda måtten slutar i väggens överkant, så bara det kortaste ritar linje.
-    const lineRe = /<line x1="[^"]+" y1="[^"]+" x2="[^"]+" y2="[^"]+" stroke="#[0-9a-f]{6}" stroke-width="2.6" stroke-linecap="round"\/>/g;
+    const lineRe = /<line x1="[^"]+" y1="[^"]+" x2="[^"]+" y2="[^"]+" stroke="#[0-9a-f]{6}" stroke-width="1.8" stroke-linecap="round" opacity="0.7"\/>/g;
     expect([...renderProfileSvg(re, edgeSurface, edgeOpts).matchAll(lineRe)]).toHaveLength(1);
     expect([...renderProfileSvg(re, edgeSurface, edgeOpts, { mergeLabelsWithin: 0 }).matchAll(lineRe)]).toHaveLength(2);
 

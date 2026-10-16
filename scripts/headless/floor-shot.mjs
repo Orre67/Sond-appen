@@ -36,6 +36,11 @@ const measure = async () => {
   return out;
 };
 
+// Rutan är på som standard: slå av, mät, slå på igen, mät
+if (await page.$eval("#show-floor", (el) => el.checked)) {
+  await page.click("#show-floor");
+  await new Promise((r) => setTimeout(r, 200));
+}
 const off = await measure();
 await page.click("#show-floor");
 await new Promise((r) => setTimeout(r, 200));

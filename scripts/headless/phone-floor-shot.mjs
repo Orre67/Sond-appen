@@ -19,7 +19,8 @@ page.on("pageerror", (e) => errs.push(`skrivbord: ${e.message}`));
 await page.goto(url, { waitUntil: "load" });
 await page.waitForFunction(() => document.querySelectorAll("#hole-list li").length > 0, { timeout: 120000 });
 await page.waitForSelector("#profile-container svg", { timeout: 60000 });
-await page.click("#show-floor");
+// Rutan är på som standard; slå på den om den slagits av
+if (!(await page.$eval("#show-floor", (el) => el.checked))) await page.click("#show-floor");
 await page.waitForFunction(() => !document.getElementById("btn-share").disabled, { timeout: 60000 });
 // Texturen måste vara klar innan publiceringen, annars nekar appen
 await page.waitForFunction(() => document.querySelector("#plan-container svg image") !== null, { timeout: 60000 }).catch(() => {});

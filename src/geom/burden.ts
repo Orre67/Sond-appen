@@ -1,4 +1,5 @@
 import { buildHolePath, pointAt, sampleDepths, type HoleInput, type HolePath, type PathMethod } from "./hole";
+import type { HoleFront } from "./rows";
 import type { HalfSpace, Surface } from "./surface";
 import { bearingOf, dot, elevationOf, sub, type Vec3 } from "./vec";
 
@@ -83,6 +84,11 @@ export interface BurdenRow {
   free3d: number | null;
   freeClosest: Vec3 | null;
   cls: BurdenClass;
+  /** Sant när värdet är avståndet till hålet i raden framför, som låg närmare än ytan (pairRows). */
+  toHole?: boolean;
+  /** Ytans försättning och ytpunkt när värdet mäts mot hålet framför. */
+  surfaceBurden?: number | null;
+  surfaceClosest?: Vec3 | null;
 }
 
 export interface HoleResult {
@@ -99,6 +105,8 @@ export interface HoleResult {
   ghost?: HolePath;
   /** Riggens raka linjer för hålet: borrplanen och kvalitetsloggen, för jämförelse med sonderingen. */
   reference?: RigLines;
+  /** Hålet i raden framför, som försättningen mäts mot där det ligger närmare än ytan (pairRows). Saknas för första raden. */
+  front?: HoleFront;
 }
 
 /** En rak linje från påhugg till botten enligt riggen, E N Z. */
@@ -112,7 +120,7 @@ export interface RigLines {
   quality?: ReferenceLine;
 }
 
-function classOf(burden: number | null, skipped: boolean, opts: BurdenOptions): BurdenClass {
+export function classOf(burden: number | null, skipped: boolean, opts: BurdenOptions): BurdenClass {
   if (skipped) return "skipped";
   if (burden === null) return "none";
   if (burden < opts.minBurden) return "low";

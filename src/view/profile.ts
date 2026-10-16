@@ -154,6 +154,11 @@ const RIG_PLAN_COLOR = "#8a8f99";
 const RIG_QUALITY_COLOR = "#2b6cb0";
 const HOLE_COLOR = "#141414";
 const TICK_COLOR = "#3aa7b8";
+/**
+ * Måttlinjernas utseende, på prov 2026-10-16: tunnare och mattare än förut, utan cirkel i änden.
+ * Det gamla var bredd 2,6, full färg och en cirkel med radie 2,6.
+ */
+const BURDEN_LINE = { width: 1.8, opacity: 0.7, endDot: false };
 const TRACE_COLOR = "#c0392b";
 const SCALE_COLOR = "#8a8a8a";
 
@@ -199,6 +204,8 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
   };
   for (const p of r.path.points) take(p);
   if (r.ghost && st.showGhost) for (const p of r.ghost.points) take(p);
+  // Hålet framför hör till hålets egen bild: måtten går dit.
+  if (r.front) for (const p of r.front.path.points) take(p);
   for (const line of [r.reference?.plan, r.reference?.quality]) {
     if (line) {
       take(line.start);
@@ -412,6 +419,7 @@ export function holeInfoText(r: HoleResult, bearing = sectionBearing(r), correct
   let text = `Längd ${fmt(r.path.length, 1)} m · Bäring ${fmt(own, 0)}° · Lutning ${fmt(holeMeanInclination(r), 0)}°`;
   if (bearingDifference(own, bearing) > 0.5) text += ` · Snitt mot ${fmt(bearing, 0)}°`;
   if (Math.abs(correction) > 1e-9) text += ` · Bäringskorr. ${signedDeg(correction)}`;
+  if (r.front) text += ` · Hål ${r.front.id} framför`;
   return text;
 }
 
@@ -599,7 +607,7 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
     const y1 = Y(x.p.z);
     const x2 = X(x.q.s);
     const y2 = Y(x.q.z);
-    parts.push(`<line x1="${f1(x1)}" y1="${f1(y1)}" x2="${f1(x2)}" y2="${f1(y2)}" stroke="${color}" stroke-width="2.6" stroke-linecap="round"/>`);
+    parts.push(`<line x1="${f1(x1)}" y1="${f1(y1)}" x2="${f1(x2)}" y2="${f1(y2)}" stroke="${color}" stroke-width="${BURDEN_LINE.width}" stroke-linecap="round" opacity="${BURDEN_LINE.opacity}"/>`);
     if (x.truncated) {
       // Pilspets: måttet fortsätter utanför bilden
       const dx = x2 - x1;
@@ -609,9 +617,9 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
       const uy = dy / len;
       const a = 7;
       parts.push(
-        `<polyline points="${f1(x2 - ux * a - uy * a * 0.6)},${f1(y2 - uy * a + ux * a * 0.6)} ${f1(x2)},${f1(y2)} ${f1(x2 - ux * a + uy * a * 0.6)},${f1(y2 - uy * a - ux * a * 0.6)}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`,
+        `<polyline points="${f1(x2 - ux * a - uy * a * 0.6)},${f1(y2 - uy * a + ux * a * 0.6)} ${f1(x2)},${f1(y2)} ${f1(x2 - ux * a + uy * a * 0.6)},${f1(y2 - uy * a - ux * a * 0.6)}" fill="none" stroke="${color}" stroke-width="${BURDEN_LINE.width}" stroke-linecap="round" stroke-linejoin="round" opacity="${BURDEN_LINE.opacity}"/>`,
       );
-    } else {
+    } else if (BURDEN_LINE.endDot) {
       parts.push(`<circle cx="${f1(x2)}" cy="${f1(y2)}" r="2.6" fill="${color}"/>`);
     }
   }
@@ -650,6 +658,19 @@ export function drawProfile(r: HoleResult, segs: ArrayLike<number>, opts: Burden
     parts.push(
       `<polyline points="${gp.map((p) => `${f1(X(p.s))},${f1(Y(p.z))}`).join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="1.4" stroke-dasharray="4 4" opacity="0.35" stroke-linejoin="round"/>`,
     );
+  }
+
+  // Hålets nummer ovanför påhugget, och hålet i raden framför svart och streckat med sitt nummer: det som
+  // försättningen mäts mot där det ligger närmare än stuffen.
+  const idLabel = (cls: string, x: number, y: number, id: string) =>
+    `<text class="${cls}" x="${f1(x)}" y="${f1(y - 7)}" font-size="12" font-weight="700" fill="${HOLE_COLOR}" text-anchor="middle" stroke="#fff" stroke-width="3" paint-order="stroke">${escapeXml(id)}</text>`;
+  parts.push(idLabel("own-id", X(hp[0].s), Y(hp[0].z), r.id));
+  if (r.front) {
+    const fp = r.front.path.points.map((p) => projectToSection(frame, p));
+    parts.push(
+      `<polyline class="front" points="${fp.map((p) => `${f1(X(p.s))},${f1(Y(p.z))}`).join(" ")}" fill="none" stroke="${HOLE_COLOR}" stroke-width="2" stroke-dasharray="6 4" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`,
+    );
+    parts.push(idLabel("front-id", X(fp[0].s), Y(fp[0].z), r.front.id));
   }
 
   // Hålet
