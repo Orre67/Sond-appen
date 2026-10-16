@@ -144,6 +144,8 @@ export function blastBearingFromLine(e0: number, n0: number, e1: number, n1: num
 
 const INK = "#141414";
 const MUTED = "#8a8a8a";
+/** Hålspåren i översikten: vita och streckade, under markörer och siffror, så att de syns mot ortofotot utan att ta över. */
+const TRACE_COLOR = "#ffffff";
 const DEFAULT_EXTRAS: PlanExtras = {
   bearing: null,
   points: [],
@@ -200,14 +202,35 @@ export function renderPlanSvg(
   // Mått: på skrivbordet fasta meter, på telefonen skärmpixlar gånger meter per pixel
   const S = ex.pixelScale;
   const sz = (pixels: number, meters: number) => (S ? pixels * S : meters);
-  const R = sz(4, 0.32);
+  const items = [...results.map((r) => ({ e: r.path.collar[0], n: r.path.collar[1] })), ...ex.points.map((p) => ({ e: p.e, n: p.n }))];
+  // Tätheten styr vad som ritas på telefonen: prickar när hålen står tätt i bild, annars ringar med numret
+  // inuti, små först och större med mer plats. Skrivbordet ritar siffror ovanför i meter som förut.
+  const nn = S ? nearestNeighbourMedian(items) / S : Infinity;
+  const mode: "dots" | "labels" | "rings" = !S ? "labels" : nn < 16 ? "dots" : "rings";
+  const showRig = !S || nn >= 30;
+  // Ringens radie följer platsen: 7 till 11 bildpunkter, så att ringarna med nummer kommer så tidigt som möjligt
+  const ringPx = Math.min(11, Math.max(7, nn * 0.42));
+  const R = mode === "dots" ? sz(2.5, 0.32) : mode === "rings" ? sz(ringPx, 0.32) : sz(4, 0.32);
   const traceW = sz(1.2, 0.09);
-  const fontL = sz(11, 0.65);
+  const fontL = mode === "rings" ? sz(Math.max(8, ringPx * 0.95), 0.65) : sz(11, 0.65);
   // Osynligt klickmål i numreringsläge, så att markören är lätt att träffa utan att bilden belamras.
   const target = (x: number, y: number) => (ex.numbering ? `<circle cx="${f(x)}" cy="${f(y)}" r="${f(sz(9, 1.0))}" fill="transparent" stroke="none"/>` : "");
-  // Numret står ovanför påhugget, centrerat och litet, så att en tät rad inte flyter ihop
-  const label = (x: number, y: number, text: string) =>
-    `<text x="${f(x)}" y="${f(y - sz(7, 0.55))}" font-size="${f(fontL)}" font-weight="500" text-anchor="middle" fill="${INK}" stroke="#fff" stroke-width="${f(sz(2, 0.16))}" paint-order="stroke">${escapeXml(text)}</text>`;
+  // Numret står ovanför påhugget, centrerat och litet, så att en tät rad inte flyter ihop. På telefonen
+  // ritas inte en siffra som skulle hamna ovanpå en redan ritad; den kommer fram vid inzoomning.
+  const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+  const label = (x: number, y: number, text: string, force = false) => {
+    const yTop = y - sz(7, 0.55);
+    if (S && !force) {
+      const w = text.length * fontL * 0.62 + sz(2, 0);
+      const box = { x0: x - w / 2, x1: x + w / 2, y0: yTop - fontL, y1: yTop };
+      if (placed.some((p) => box.x0 < p.x1 && box.x1 > p.x0 && box.y0 < p.y1 && box.y1 > p.y0)) return "";
+      placed.push(box);
+    }
+    return `<text x="${f(x)}" y="${f(yTop)}" font-size="${f(fontL)}" font-weight="500" text-anchor="middle" fill="${INK}" stroke="#fff" stroke-width="${f(sz(2, 0.16))}" paint-order="stroke">${escapeXml(text)}</text>`;
+  };
+  // Numret inuti ringen
+  const inside = (x: number, y: number, text: string, color: string) =>
+    `<text class="ring-id" x="${f(x)}" y="${f(y + fontL * 0.36)}" font-size="${f(fontL)}" font-weight="700" text-anchor="middle" fill="${color}">${escapeXml(text)}</text>`;
 
   // Riggens linjer sedda uppifrån, bakom hålen: planen prickad grå, loggen blå.
   const rigLine = (kind: string, l: PlanLine, color: string, dash: string | null) => {
@@ -215,11 +238,12 @@ export function renderPlanSvg(
     const b = P(l.e1, l.n1);
     return `<line class="plan-rig-line ${kind}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}" stroke="${color}" stroke-width="${f(traceW)}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`;
   };
-  for (const l of ex.rigLines.plan) parts.push(rigLine("plan", l, "#8a8f99", `${f(sz(2, 0.25))} ${f(sz(3, 0.35))}`));
-  for (const l of ex.rigLines.quality) parts.push(rigLine("quality", l, "#2b6cb0", null));
+  if (showRig) {
+    for (const l of ex.rigLines.plan) parts.push(rigLine("plan", l, "#8a8f99", `${f(sz(2, 0.25))} ${f(sz(3, 0.35))}`));
+    for (const l of ex.rigLines.quality) parts.push(rigLine("quality", l, "#2b6cb0", null));
+  }
 
   // Hål på samma plats, inom 0,25 m, får siffrorna staplade ovanför varandra och ett ×n vid markören.
-  const items = [...results.map((r) => ({ e: r.path.collar[0], n: r.path.collar[1] })), ...ex.points.map((p) => ({ e: p.e, n: p.n }))];
   const stackIdx = new Array<number>(items.length).fill(0);
   const groupSize = new Array<number>(items.length).fill(1);
   const grouped = new Array<boolean>(items.length).fill(false);
@@ -235,44 +259,63 @@ export function renderPlanSvg(
       groupSize[m] = members.length;
     });
   }
-  const stackedLabel = (i: number, x: number, y: number, text: string) => label(x, y - stackIdx[i] * fontL * 1.15, text);
+  // Numret för en markör: inuti ringen när det finns plats, annars ovanför, staplat vid samma läge; prickar får inget.
+  const number = (i: number, x: number, y: number, text: string, color: string, force: boolean) => {
+    if (mode === "dots") return "";
+    if (mode === "rings" && stackIdx[i] === 0) return inside(x, y, text, color);
+    const lift = mode === "rings" ? R + sz(2, 0.2) : 0;
+    return label(x, y - lift - stackIdx[i] * fontL * 1.15, text, force);
+  };
   const badge = (i: number, x: number, y: number) =>
     stackIdx[i] === 0 && groupSize[i] > 1
-      ? `<text class="stack-badge" x="${f(x + R * 1.8)}" y="${f(y + R * 0.9)}" font-size="${f(fontL * 0.75)}" fill="#666" stroke="#fff" stroke-width="${f(sz(1.5, 0.12))}" paint-order="stroke">×${groupSize[i]}</text>`
+      ? `<text class="stack-badge" x="${f(x + R * (mode === "rings" ? 1.0 : 1.8))}" y="${f(y + R * (mode === "rings" ? 1.2 : 0.9))}" font-size="${f(fontL * 0.75)}" fill="#666" stroke="#fff" stroke-width="${f(sz(1.5, 0.12))}" paint-order="stroke">×${groupSize[i]}</text>`
       : "";
-  const ring = (x: number, y: number) => `<circle cx="${f(x)}" cy="${f(y)}" r="${f(sz(8, 0.7))}" fill="none" stroke="${INK}" stroke-width="${f(sz(1.5, 0.14))}"/>`;
+  const ring = (x: number, y: number) => `<circle cx="${f(x)}" cy="${f(y)}" r="${f(mode === "rings" ? R + sz(4, 0.4) : sz(8, 0.7))}" fill="none" stroke="${INK}" stroke-width="${f(sz(1.5, 0.14))}"/>`;
 
+  // Hålspåren, banorna sedda uppifrån, i ett eget lager under alla markörer och siffror: svagt grått så att de
+  // syns utan att ta över. Inte när bilden är tät.
+  if (mode !== "dots") {
+    parts.push(`<g class="traces">`);
+    for (const r of results) {
+      const trace = r.path.points.map((p) => { const q = P(p[0], p[1]); return `${f(q.x)},${f(q.y)}`; }).join(" ");
+      parts.push(`<polyline class="trace" points="${trace}" fill="none" stroke="${TRACE_COLOR}" stroke-width="${f(traceW)}" stroke-dasharray="${f(sz(4, 0.3))} ${f(sz(3, 0.25))}" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`);
+    }
+    parts.push(`</g>`);
+  }
+
+  // Beräknade hål: svart markör, eller vit ring med numret inuti när det finns plats
   for (const [ri, r] of results.entries()) {
     const sel = r.id === selectedId;
     const source = ex.sourceIds.get(r.id);
     const k = P(r.path.collar[0], r.path.collar[1]);
     parts.push(`<g class="plan-hole" data-id="${escapeXml(r.id)}" data-source="${escapeXml(source ?? r.id)}" style="cursor:pointer">`);
-    const trace = r.path.points
-      .map((p) => {
-        const q = P(p[0], p[1]);
-        return `${f(q.x)},${f(q.y)}`;
-      })
-      .join(" ");
-    parts.push(`<polyline points="${trace}" fill="none" stroke="${INK}" stroke-width="${f(traceW)}"/>`);
     if (sel) parts.push(ring(k.x, k.y));
     parts.push(target(k.x, k.y));
-    parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${INK}" stroke="#fff" stroke-width="${f(sz(1, 0.08))}"/>`);
-    parts.push(stackedLabel(ri, k.x, k.y, r.id));
+    if (mode === "rings") {
+      parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#fff" stroke="${INK}" stroke-width="${f(sz(1.6, 0.12))}"/>`);
+    } else if (mode === "dots") {
+      // Tätt: små vita prickar med svart kant, samma språk som ringarna
+      parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#fff" stroke="${INK}" stroke-width="${f(sz(1, 0.08))}"/>`);
+    } else {
+      parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="${INK}" stroke="#fff" stroke-width="${f(sz(1, 0.08))}"/>`);
+    }
+    parts.push(number(ri, k.x, k.y, r.id, INK, sel));
     parts.push(badge(ri, k.x, k.y));
     parts.push(`</g>`);
   }
 
-  // Startpunkter utan beräknat hål: ljus ring med nummer (utan sondering), eller ihålig helt utan text
+  // Startpunkter utan beräknat hål: ljus markör med nummer (utan sondering), eller ihålig helt utan text
   for (const [pi, p] of ex.points.entries()) {
     const i = results.length + pi;
     const k = P(p.e, p.n);
+    const sel = p.sourceId === ex.selectedSource;
     parts.push(`<g class="plan-point" data-source="${escapeXml(p.sourceId)}" style="cursor:pointer">`);
-    if (p.sourceId === ex.selectedSource) parts.push(ring(k.x, k.y));
+    if (sel) parts.push(ring(k.x, k.y));
     parts.push(target(k.x, k.y));
     if (p.id !== null) {
-      // Utan sondering: ljus ring med grå kant, som i en borrplan.
+      // Utan sondering: ljus markör med grå kant, som i en borrplan.
       parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#e3e6ea" stroke="${MUTED}" stroke-width="${f(sz(1.2, 0.1))}"/>`);
-      parts.push(stackedLabel(i, k.x, k.y, p.id));
+      parts.push(number(i, k.x, k.y, p.id, mode === "rings" ? "#555" : INK, sel));
     } else {
       // Utan nummer: ihålig markör utan text, originalnamnet belamrar bara bilden.
       parts.push(`<circle class="collar" cx="${f(k.x)}" cy="${f(k.y)}" r="${f(R)}" fill="#fff" stroke="${INK}" stroke-width="${f(sz(1.4, 0.12))}"/>`);
@@ -285,4 +328,40 @@ export function renderPlanSvg(
   parts.push(`<g id="plan-overlay" pointer-events="none"></g>`);
   parts.push(`</svg>`);
   return parts.join("\n");
+}
+
+/** Medianen av varje punkts avstånd till sin närmaste granne, meter. Oändligt med färre än två punkter. */
+export function nearestNeighbourMedian(items: { e: number; n: number }[]): number {
+  if (items.length < 2) return Infinity;
+  const nearest: number[] = [];
+  for (let i = 0; i < items.length; i++) {
+    let best = Infinity;
+    for (let j = 0; j < items.length; j++) {
+      if (i === j) continue;
+      const d = Math.hypot(items[i].e - items[j].e, items[i].n - items[j].n);
+      if (d < best) best = d;
+    }
+    nearest.push(best);
+  }
+  nearest.sort((a, b) => a - b);
+  const mid = Math.floor(nearest.length / 2);
+  return nearest.length % 2 ? nearest[mid] : (nearest[mid - 1] + nearest[mid]) / 2;
+}
+
+/** Hålens utbredning i kartramen med marginal: startvyn på telefonen, så att salvan fyller skärmen och inte modellen. */
+export function holesViewBox(frame: PlanFrame, points: { e: number; n: number }[]): { x: number; y: number; w: number; h: number } | null {
+  if (points.length === 0) return null;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    const [x, y] = frame.toScreen(p.e, p.n);
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  const m = Math.max(4, 0.12 * Math.max(maxX - minX, maxY - minY));
+  return { x: minX - m, y: minY - m, w: maxX - minX + 2 * m, h: maxY - minY + 2 * m };
 }

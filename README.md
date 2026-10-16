@@ -61,8 +61,7 @@ Flikar:
   rubriken, "Hål 7 framför"; ytans värde finns kvar i resultatet. Första raden har inget hål
   framför och mäter mot stuffen som förut. Allt följer med till telefonen.
 - **3D**: ytan med textur, hålen och mätlinjerna. Klick på ett hål väljer det.
-- **Översikt**: salvan uppifrån på en ortofotobild av modellen, hålen färgade efter sin
-  minsta försättning. Klick väljer hål.
+- **Översikt**: salvan uppifrån på en ortofotobild av modellen, med hålens nummer. Klick väljer hål.
 - **Tabell**: alla provpunkter för valt hål eller alla hål.
 
 Export: CSV för Excel, SVG av vald profil, DXF för kontroll, samt "Skriv ut alla" som ger en
@@ -70,9 +69,13 @@ sida per hål och kan sparas som PDF i webbläsarens utskriftsdialog.
 
 ## Översikten: skjutriktning och omnumrering
 
-Fliken Översikt visar ortofotot uppifrån med hålens spår och nummer, utan mått och färger, samt
-startpunkter som saknar sondering (grå) eller nummer (ihåliga). Scrollhjulet zoomar, dra flyttar
-kartan och "Hela ytan" återställer. Ange skjutriktningen i grader, eller tryck
+Fliken Översikt visar ortofotot uppifrån med hålens påhugg, nummer och spår i svagt grått under markörerna, utan
+mått och färger, samt startpunkter som saknar sondering (grå) eller nummer (ihåliga). På telefonen börjar
+vyn på hålen, inte på hela modellen, och tätheten styr vad som ritas: står hålen tätt i bild
+visas bara prickar, annars ringar med numret inuti, små först och större med mer plats, och med
+gott om plats även riggens linjer. Scrollhjulet zoomar, dra flyttar
+kartan och "Hela ytan" återställer. Utan angiven skjutriktning vrids kartan efter salvans riktning
+mot stuffen, räknad ur hålens försättningar och visad som "auto" i fältet. Ange skjutriktningen i grader, eller tryck
 "Rita riktning" och dra en linje längs raden från höger till vänster: riktningen blir vinkelrät
 mot linjen och kartan vrids så att den pekar uppåt. Hålens spår ska då peka uppåt.
 

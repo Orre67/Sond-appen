@@ -43,6 +43,23 @@ export function closestOnPath(path: HolePath, p: Vec3): { point: Vec3; distance:
   return { point: best, distance: bd, atBottom };
 }
 
+/**
+ * Salvans riktning mot stuffen ur hålens egna försättningar: cirkulärt medel av måttriktningarna, hela
+ * grader. Används som skjutriktning för översikten när ingen är angiven. null utan mätningar.
+ */
+export function salvaBearing(results: HoleResult[]): number | null {
+  let x = 0;
+  let y = 0;
+  for (const r of results) {
+    const b = burdenBearing(r);
+    if (b === null) continue;
+    x += Math.sin(toRad(b));
+    y += Math.cos(toRad(b));
+  }
+  if (Math.hypot(x, y) < 1e-6) return null;
+  return Math.round(((Math.atan2(x, y) * 180) / Math.PI + 360) % 360) % 360;
+}
+
 /** Riktningen mot stuffen för ett hål: skjutriktningen när den finns, annars försättningens riktning, annars hålets bäring. */
 export function faceBearing(r: HoleResult, blastBearing: number | null): number | null {
   if (blastBearing !== null) return blastBearing;

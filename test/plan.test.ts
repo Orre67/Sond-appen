@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_OPTIONS } from "../src/geom/burden";
+import { DEFAULT_OPTIONS, type HoleResult } from "../src/geom/burden";
 import type { Bounds } from "../src/io/mesh";
-import { blastBearingFromLine, planFrame, renderPlanSvg, rotatedExtent } from "../src/view/plan";
+import { blastBearingFromLine, holesViewBox, nearestNeighbourMedian, planFrame, renderPlanSvg, rotatedExtent } from "../src/view/plan";
 
 const bounds: Bounds = { min: [100, 200, 0], max: [140, 220, 10] };
 
@@ -73,8 +73,69 @@ describe("översikt", () => {
     // Skrivbordet ritar i meter, telefonen i skärmpixlar gånger meter per pixel
     expect(svg).toContain('font-size="0.65"');
     const phone = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: [{ id: "7", sourceId: "7", e: 120, n: 210 }], pixelScale: 0.2 });
-    expect(phone).toContain('font-size="2.20"');
-    expect(phone).toContain('r="0.80"');
+    // Numret inuti ringen: 11 × 0,95 bildpunkter
+    expect(phone).toContain('font-size="2.09"');
+    // Ett ensamt hål har gott om plats: ring med numret inuti, radie 11 bildpunkter
+    expect(phone).toContain('r="2.20"');
+    expect(phone).toContain('class="ring-id"');
+    // Hålspåret ritas svagt grått i ett lager under markörerna, sett uppifrån
+    const hole = { id: "5", path: { collar: [120, 210, 10], points: [[120, 210, 10], [121, 212, 0]] } } as unknown as HoleResult;
+    const withHole = renderPlanSvg([hole], DEFAULT_OPTIONS, bounds, null, null, {});
+    expect(withHole).toContain(`<polyline class="trace"`);
+    expect(withHole).toContain(`stroke="#ffffff"`);
+    expect(withHole.indexOf(`<g class="traces">`)).toBeLessThan(withHole.indexOf(`class="plan-hole"`));
+    // Tätt på telefonen: inget spår
+    const dense = renderPlanSvg([hole], DEFAULT_OPTIONS, bounds, null, null, { points: [{ id: "6", sourceId: "6", e: 121, n: 210 }, { id: "7", sourceId: "7", e: 122, n: 210 }], pixelScale: 0.2 });
+    expect(dense).not.toContain(`<polyline class="trace"`);
+  });
+});
+
+describe("täthet på telefonen", () => {
+  const row = (ids: string[], spacing: number) => ids.map((id, i) => ({ id, sourceId: id, e: 110 + i * spacing, n: 210 }));
+  const rig = { plan: [{ id: "1", e0: 110, n0: 210, e1: 112, n1: 215 }], quality: [] };
+  it("tätt: bara prickar, inga siffror och inga rigglinjer", () => {
+    // 2 m mellan hålen, 0,2 m per bildpunkt: 10 bildpunkter
+    const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 2), pixelScale: 0.2, rigLines: rig });
+    expect(svg).toContain('r="0.50"');
+    expect(svg).not.toMatch(/<text[^>]*>[123]</);
+    // 3 m: 15 bildpunkter är fortfarande prickar
+    expect(renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 3), pixelScale: 0.2 })).toContain('r="0.50"');
+    expect(svg).not.toContain("plan-rig-line");
+  });
+  it("lagom: små ringar med numret inuti, utan rigglinjer", () => {
+    // 5 m mellan hålen: 25 bildpunkter. Ringen får radien 25 × 0,42 = 10,5 bildpunkter.
+    const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 5), pixelScale: 0.2, rigLines: rig });
+    expect((svg.match(/class="ring-id"/g) ?? []).length).toBe(3);
+    expect(svg).toContain('r="2.10"');
+    expect(svg).not.toContain("plan-rig-line");
+    // 4 m: 20 bildpunkter ger radien 8,4
+    const tight = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 4), pixelScale: 0.2 });
+    expect(tight).toContain('r="1.68"');
+    expect((tight.match(/class="ring-id"/g) ?? []).length).toBe(3);
+  });
+  it("glest: ringar med numret inuti och rigglinjer", () => {
+    // 10 m mellan hålen: 50 bildpunkter
+    const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 10), pixelScale: 0.2, rigLines: rig });
+    expect((svg.match(/class="ring-id"/g) ?? []).length).toBe(3);
+    expect(svg).toContain('r="2.20"');
+    expect(svg).toContain("plan-rig-line");
+  });
+  it("skrivbordet påverkas inte av tätheten", () => {
+    const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 1) });
+    expect((svg.match(/font-size="0.65"/g) ?? []).length).toBe(3);
+    expect(svg).toContain('r="0.32"');
+  });
+  it("medianen av närmaste grannavstånd och startvyn på hålen", () => {
+    expect(nearestNeighbourMedian([])).toBe(Infinity);
+    expect(nearestNeighbourMedian([{ e: 0, n: 0 }])).toBe(Infinity);
+    expect(nearestNeighbourMedian([{ e: 0, n: 0 }, { e: 2, n: 0 }, { e: 12, n: 0 }])).toBe(2);
+    const F = planFrame(bounds, null, 0);
+    const v = holesViewBox(F, [{ e: 110, n: 205 }, { e: 120, n: 215 }])!;
+    // Hålen spänner 10 × 10 m; marginalen blir 4 m
+    expect(v.w).toBeCloseTo(18, 6);
+    expect(v.h).toBeCloseTo(18, 6);
+    expect(v.x).toBeCloseTo(6, 6);
+    expect(holesViewBox(F, [])).toBeNull();
   });
 });
 

@@ -3,7 +3,7 @@ import { fetchShare, type ShareBundle } from "./core/share";
 import { CLASS_COLORS, fmt } from "./view/format";
 import { attachHover } from "./view/hover";
 import { drawProfile, type HoverSample } from "./view/profile";
-import { planFrame, renderPlanSvg } from "./view/plan";
+import { holesViewBox, planFrame, renderPlanSvg } from "./view/plan";
 import { attachPanZoom, type ViewBox } from "./view/panzoom";
 import { formatDate, timeAgo, type Catalog, type CatalogEntry } from "./core/catalog";
 
@@ -114,6 +114,10 @@ function drawPlan(): void {
   const view = $("view");
   const frame = planFrame(plan.bounds, plan.bearing, 3, plan.extent);
   const fit: ViewBox = { x: 0, y: 0, w: frame.w, h: frame.h };
+  // Startvyn passas till hålen, inte till hela modellen; dubbeltryck visar hela modellen.
+  if (planView === null) {
+    planView = holesViewBox(frame, [...bundle.holes.map((h) => ({ e: h.result.path.collar[0], n: h.result.path.collar[1] })), ...plan.points]);
+  }
   const current = planView ?? fit;
   // Meter per skärmpixel vid den zoom som gäller, med bilden inpassad i rutan
   const pixelScale = Math.max(current.w / Math.max(1, view.clientWidth), current.h / Math.max(1, view.clientHeight));

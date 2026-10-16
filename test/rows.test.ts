@@ -144,3 +144,15 @@ describe("raden framför", () => {
     }
   });
 });
+
+describe("salvans riktning", () => {
+  it("är cirkulärt medel av hålens måttriktningar, null utan mätningar", async () => {
+    const { salvaBearing } = await import("../src/geom/rows");
+    const surface = bench(5);
+    const a = computeHole(surface, { id: "1", collar: [0, 0, 0], stations: vertical(10) }, stickOpts);
+    const b = computeHole(surface, { id: "2", collar: [0, 6, 0], stations: vertical(10) }, stickOpts);
+    expect(salvaBearing([a, b])).toBe(90);
+    expect(salvaBearing([hole("x", 0, 0, 14)])).toBeNull();
+    expect(salvaBearing([])).toBeNull();
+  });
+});

@@ -9,7 +9,7 @@ import { History } from "./core/history";
 import { computeHole, DEFAULT_OPTIONS, type BurdenOptions, type HoleResult, type RigLines } from "./geom/burden";
 import { autoBearingCorrection, describeCorrection, type AutoBearingCorrection } from "./geom/geodesy";
 import { buildHolePath, type HoleInput } from "./geom/hole";
-import { pairRows } from "./geom/rows";
+import { pairRows, salvaBearing } from "./geom/rows";
 import { Surface } from "./geom/surface";
 import type { Vec3 } from "./geom/vec";
 import { parseDm4, type SondeProfile } from "./io/dm4";
@@ -464,6 +464,11 @@ function setBlastBearing(value: number | null): void {
   renderHoleList();
   renderProfileView();
   renderTableView();
+}
+
+/** Översiktens riktning: angiven skjutriktning, annars salvans riktning mot stuffen ur hålens försättningar, annars norr. */
+function planBearing(): number | null {
+  return state.blastBearing ?? salvaBearing(state.results);
 }
 
 /** Hämtar sparad skjutriktning för aktuell plats när platsen bytts, till exempel efter en ny ytmodell. */
@@ -984,11 +989,12 @@ function renderPlan(): void {
   const points = pointsWithoutHole();
   const bg = state.surface && state.planBg && state.planBgSurface === state.surface ? { dataUrl: state.planBg } : null;
   // Ramen följer modellens verkliga utbredning i den vridna vyn, inte dess rektangel i E N.
-  const extent = state.surface && state.mesh ? rotatedExtent(state.mesh.positions, bounds, state.blastBearing, 4) : null;
-  const frame = planFrame(bounds, state.blastBearing, 3, extent);
+  const bearing = planBearing();
+  const extent = state.surface && state.mesh ? rotatedExtent(state.mesh.positions, bounds, bearing, 4) : null;
+  const frame = planFrame(bounds, bearing, 3, extent);
   const toPlanLine = (l: RigLine) => ({ id: l.id, e0: l.start[0], n0: l.start[1], e1: l.end[0], n1: l.end[1] });
   c.innerHTML = renderPlanSvg(state.sceneResults, state.opts, bounds, bg, state.selectedId, {
-    bearing: state.blastBearing,
+    bearing,
     points,
     sourceIds: state.sourceIds,
     numbering: state.numbering !== null,
@@ -1144,6 +1150,9 @@ function attachDirectionDrawing(svg: SVGSVGElement, F: PlanFrame): void {
 function updatePlanToolbar(): void {
   const input = $<HTMLInputElement>("blast-bearing");
   if (document.activeElement !== input) input.value = state.blastBearing === null ? "" : String(state.blastBearing);
+  // Utan angiven skjutriktning visas salvans riktning ur hålens försättningar som förslag i fältet
+  const derived = salvaBearing(state.results);
+  input.placeholder = state.blastBearing === null && derived !== null ? `auto ${derived}` : "";
   $("blast-draw").classList.toggle("active", state.drawingDirection);
   const start = $<HTMLButtonElement>("num-start");
   start.classList.toggle("active", state.numbering !== null);
@@ -1375,8 +1384,8 @@ function buildSharePlan(): SharePlan | null {
   }
   return {
     bounds,
-    bearing: state.blastBearing,
-    extent: state.mesh ? rotatedExtent(state.mesh.positions, bounds, state.blastBearing, 4) : null,
+    bearing: planBearing(),
+    extent: state.mesh ? rotatedExtent(state.mesh.positions, bounds, planBearing(), 4) : null,
     image,
     points: pointsWithoutHole().map((p) => ({ id: p.id, sourceId: p.sourceId, e: p.e, n: p.n })),
     sourceIds: [...state.sourceIds],
