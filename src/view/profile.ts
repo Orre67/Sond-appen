@@ -38,9 +38,14 @@ export interface ProfileStyle {
   /**
    * Pallbotten: salvans lägsta hålbotten (Z). Anges den visas hela bergprofilen: fönstret sträcks ned
    * till botten och ut till foten (style.toe, hittad i modellen med findToe), så att ett kort hål ses i
-   * hela slänten. Utan fot antas slänten inte flackare än 45°. Hål som redan når botten påverkas inte.
+   * hela slänten. Utan fot antas slänten inte flackare än 45°.
    */
   floorZ?: number | null;
+  /**
+   * Salvans högsta påhugg (Z). Med floorZ ger det en gemensam ram i höjdled för alla hål i salvan:
+   * samma skala, och ett hål med lägre påhugg står lägre i bilden. Utan topZ börjar ramen vid hålets eget påhugg.
+   */
+  topZ?: number | null;
   /** Foten i snittet för det här hålet, från findToe(). null eller utelämnad: inte hittad. */
   toe?: SectionPoint | null;
   /**
@@ -98,12 +103,9 @@ export interface ProfileExtents {
   latMax: number;
   /** Släntsidan av hålets egen bild, med marginal: hålet, måttlinjerna och siffrorna. Lika med sMax utan fönster nedåt. */
   ownSMax: number;
-  /** Sant när fönstret sträckts ned under hålets egen bild (style.floorZ). */
+  /** Sant när hela bergprofilen visas (style.floorZ satt): fönstret är salvans ram, inte hålets egen bild. */
   floored: boolean;
 }
-
-/** Andel av ritområdets bredd till höger om påhugget när hela bergprofilen visas. Oscar valde den efter hål 18 i Gillinge. */
-const RIGHT_SHARE = 0.3;
 
 /** Marginaler i meter runt hålets bild: s0 på hålsidan (djupsiffrorna), s1 på släntsidan (måttens siffror), z0 under, z1 över. */
 function pads(st: ProfileStyle) {
@@ -218,17 +220,19 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
   // s1 är släntsidan där siffrorna står till vänster om ändpunkterna och behöver plats.
   // s0 på hålsidan ger plats åt djupsiffrorna, som ritas inom ritområdet.
   const pad = pads(st);
-  // Hela bergprofilen: ned till pallbotten och ut till foten när den hittats i modellen. Utan fot antas
-  // slänten inte flackare än 45°, lika mycket bredd som djup, så att den troligen syns ändå.
-  const floored = st.floorZ !== undefined && st.floorZ !== null && st.floorZ < zMin;
+  // Hela bergprofilen: salvans ram i höjdled, från högsta påhugg ned till pallbotten, och ut till foten när
+  // den hittats i modellen. Utan fot antas slänten inte flackare än 45°, lika mycket bredd som djup.
+  const floored = st.floorZ !== undefined && st.floorZ !== null;
   let sMaxOut = sMax;
   let zMinOut = zMin;
+  let zMaxOut = zMax;
   if (floored) {
     const floorZ = st.floorZ as number;
+    if (st.topZ !== undefined && st.topZ !== null) zMaxOut = Math.max(zMax, st.topZ);
     if (st.toe) {
       sMaxOut = Math.max(sMax, st.toe.s);
-      zMinOut = Math.min(floorZ, st.toe.z);
-    } else {
+      zMinOut = Math.min(zMin, floorZ, st.toe.z);
+    } else if (floorZ < zMin) {
       sMaxOut = sMax + (zMin - floorZ);
       zMinOut = floorZ;
     }
@@ -239,7 +243,7 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
     sMin: sMin - pad.s0,
     sMax: sMaxOut + pad.s1,
     zMin: zMinOut - pad.z0,
-    zMax: zMax + pad.z1,
+    zMax: zMaxOut + pad.z1,
     latMin: Math.min(latMin - 1.0, -2.0),
     latMax: Math.max(latMax + 1.0, 2.0),
     ownSMax: sMax + pad.s1,
@@ -249,21 +253,26 @@ export function profileExtents(r: HoleResult, opts: BurdenOptions, style: Partia
 
 /**
  * Foten i snittet: den första punkten, räknat från hålet ut mot stuffen, där bergytan kommer ned till
- * pallbottens nivå (style.floorZ, inom 3 m under och 2 m över). Snittet tas ur modellen i ett brett
- * sökfönster. null när fönstret inte sträcks ned alls, eller när ingen sådan punkt finns i modellen.
+ * sin lägsta nivå i snittet, inom 2 m över den. Lägsta nivån tas ur modellen själv, inte ur hålens
+ * botten, så att varken underborrning eller löst berg framför stuffen flyttar foten fel: en rasmassa
+ * är bergytan i modellen och foten hamnar på den. Sökfönstret går ned till 3 m under pallbotten
+ * (style.floorZ). null när hela bergprofilen inte visas, eller när modellen saknar yta i fönstret.
  * Resultatet ges som style.toe till profileExtents och följer med per hål till telefonen.
  */
 export function findToe(r: HoleResult, surface: Surface, opts: BurdenOptions, style: Partial<ProfileStyle> = {}): SectionPoint | null {
   const st = { ...DEFAULT_PROFILE_STYLE, ...style };
   if (st.floorZ === undefined || st.floorZ === null) return null;
   const floorZ = st.floorZ;
-  const own = profileExtents(r, opts, { ...st, floorZ: null });
-  if (!profileExtents(r, opts, { ...st, toe: null }).floored) return null;
+  const own = profileExtents(r, opts, { ...st, floorZ: null, topZ: null });
   // Sökfönstret räcker ut till tre gånger pallhöjden; flackare slänter än ca 20° täcks inte.
   const search = { sMin: own.sMin, sMax: own.sMax + 3 * (own.zMax - floorZ) + 5, zMin: floorZ - 3, zMax: own.zMax };
   const segs = sectionSegments(surface, own.frame, search);
-  const zLo = floorZ - 3;
-  const zHi = floorZ + 2;
+  // Lägsta bergyta i fönstret, segmenten klippta mot fönstrets botten
+  let zLow = Infinity;
+  for (let i = 0; i + 3 < segs.length; i += 4) zLow = Math.min(zLow, Math.max(Math.min(segs[i + 1], segs[i + 3]), search.zMin));
+  if (!Number.isFinite(zLow)) return null;
+  const zLo = zLow;
+  const zHi = zLow + 2;
   let best: SectionPoint | null = null;
   const consider = (s: number, z: number) => {
     if (z >= zLo && z <= zHi && (!best || s < best.s)) best = { s, z };
@@ -306,16 +315,19 @@ export function profileLayout(r: HoleResult, opts: BurdenOptions, style: Partial
   const plotW = W - ml - mr - gap - fw;
   let k: number;
   if (E.floored) {
-    // Hela bergprofilen: höjden ger skalan, påhugget står RIGHT_SHARE av ritområdets bredd från högerkanten,
-    // med plats för djupsiffrorna och senare hålet bakom, och slänten visas så långt åt vänster som
-    // ritområdet rymmer. Foten får hamna utanför bilden.
+    // Hela bergprofilen: höjden ger skalan, och hålets egen bild med marginaler, hålet, måttlinjerna och
+    // siffrorna, centreras i sidled. Fönstret fylls på båda sidor med det ritområdet rymmer: slänten till
+    // vänster, marken bakom påhugget till höger. Ett lutande hål får då påhugget en bit från högerkanten,
+    // ett hål som står lodrätt i snittet hamnar mitt i bilden. Djupsiffrorna får alltid minst `need`
+    // bildpunkter till höger om påhugget. Foten får hamna utanför bilden.
     const pad = pads(st);
-    const need = Math.max(st.compact ? 44 : 64, RIGHT_SHARE * plotW);
+    const need = st.compact ? 44 : 64;
     const sRaw = sMin + pad.s0;
-    const k0 = Math.min(kH, (plotW - need) / (E.ownSMax - sRaw));
-    const right = Math.max(pad.s0, need / k0);
-    k = Math.min(k0, plotW / (E.ownSMax - sRaw + right));
-    sMin = sRaw - right;
+    k = Math.min(kH, plotW / (E.ownSMax - sMin), (plotW - need) / (E.ownSMax - sRaw));
+    const half = plotW / k / 2;
+    const center = (sMin + E.ownSMax) / 2;
+    sMin = center - half;
+    if ((sRaw - sMin) * k < need) sMin = sRaw - need / k;
     sMax = sMin + plotW / k;
   } else {
     k = Math.min(kH, plotW / (sMax - sMin));
@@ -436,12 +448,12 @@ export function sectionWindowFor(
   const E = profileExtents(r, opts, style);
   let { sMin, sMax } = E;
   if (E.floored) {
-    // Telefonen visar så mycket slänt som dess skärm rymmer vid höjdens skala, stående eller liggande (bredd
-    // högst två gånger höjden): snittet skärs ut två gånger fönstrets höjd åt släntsidan, och RIGHT_SHARE av
-    // det bakom påhugget.
+    // Telefonen visar så mycket som dess skärm rymmer vid höjdens skala, stående eller liggande (bredd högst
+    // två gånger höjden), med hålets bild i mitten: snittet skärs ut två gånger fönstrets höjd åt släntsidan
+    // och en gång bakom påhugget.
     const h = E.zMax - E.zMin;
     sMax = Math.max(sMax, sMin + 2 * h);
-    sMin -= RIGHT_SHARE * 2 * h;
+    sMin -= h;
   }
   return { frame: E.frame, sMin: sMin - margin, sMax: sMax + margin, zMin: E.zMin - margin, zMax: E.zMax + margin };
 }

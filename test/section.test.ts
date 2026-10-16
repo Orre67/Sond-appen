@@ -239,7 +239,7 @@ describe("profilens fönster", () => {
     { depth: 4, bearing: 90, inclination: 14 },
   ] }, opts);
 
-  it("hela bergprofilen: ned till pallbotten, och utan fot lika mycket åt släntsidan som djupet", () => {
+  it("hela bergprofilen: salvans ram ned till pallbotten och upp till högsta påhugg, utan fot lika mycket åt släntsidan som djupet", () => {
     const own = profileExtents(short, opts);
     const bottomZ = short.path.points[short.path.points.length - 1][2];
     expect(bottomZ).toBeCloseTo(-4 * Math.cos((14 * Math.PI) / 180), 6);
@@ -251,6 +251,10 @@ describe("profilens fönster", () => {
     expect(deep.sMax - own.sMax).toBeCloseTo(extra, 6);
     expect(deep.sMin).toBeCloseTo(own.sMin, 6);
     expect(deep.zMax).toBeCloseTo(own.zMax, 6);
+    // Salvans högsta påhugg lyfter ramens överkant: hålet står lägre i bilden
+    const framed = profileExtents(short, opts, { floorZ: -12, topZ: 3 });
+    expect(framed.zMax).toBeCloseTo(3 + 2.0, 6);
+    expect(framed.zMin).toBeCloseTo(-12 - 1.5, 6);
     // Med fot: fönstret når foten och botten, inte längre
     const toe = { s: 5.5, z: -11 };
     const toed = profileExtents(short, opts, { floorZ: -12, toe });
@@ -258,8 +262,11 @@ describe("profilens fönster", () => {
     expect(toed.zMin).toBeCloseTo(-12 - 1.5, 6);
     // Fot innanför hålets egen bild breddar inget
     expect(profileExtents(short, opts, { floorZ: -12, toe: { s: 0, z: -11 } }).sMax).toBeCloseTo(own.sMax, 6);
-    // En botten ovanför hålets egen ändrar inget, och null betyder av
-    expect(profileExtents(short, opts, { floorZ: 0 })).toEqual(own);
+    // Hål som själv når botten: ramen är ändå salvans, men fönstret växer inte nedåt
+    const reaches = profileExtents(short, opts, { floorZ: 0, topZ: 0 });
+    expect(reaches.floored).toBe(true);
+    expect({ ...reaches, floored: false }).toEqual(own);
+    // null betyder av
     expect(profileExtents(short, opts, { floorZ: null })).toEqual(own);
     // Snittet till telefonen skärs ut med samma fönster, kompakt marginal 0,8 m
     const win = sectionWindowFor(short, opts, { compact: true, floorZ: -12, toe }, 0);
@@ -270,7 +277,57 @@ describe("profilens fönster", () => {
     expect(L.zMax - L.zMin).toBeCloseTo(toed.zMax - toed.zMin, 6);
   });
 
-  it("hela bergprofilen i bild: höjden ger skalan, hålet till höger med plats för siffrorna, slänten så långt bilden räcker", () => {
+  it("foten hittas där bergytan är som lägst i snittet, oavsett underborrning", () => {
+    // Av: ingen fot
+    expect(findToe(short, surface, opts, {})).toBeNull();
+    // Lodrät vägg vid s=2 ned till -20, pallbotten -12: sökfönstret når -15, foten står rakt under hålet
+    const wallToe = findToe(short, surface, opts, { floorZ: -12 });
+    expect(wallToe).not.toBeNull();
+    expect(wallToe!.s).toBeCloseTo(2, 6);
+    expect(wallToe!.z).toBeGreaterThanOrEqual(-15);
+    expect(wallToe!.z).toBeLessThanOrEqual(-13);
+    expect(profileExtents(short, opts, { floorZ: -12, toe: wallToe }).sMax).toBeCloseTo(profileExtents(short, opts).sMax, 6);
+    // Hål som når botten får också sin fot, så att alla hål i salvan ritas lika
+    expect(findToe(short, surface, opts, { floorZ: 0 })!.s).toBeCloseTo(2, 6);
+    // Underborrning: bergytan på botten ligger på -10, lägsta hålbotten på -12. Foten söks från ytan, inte från hålen.
+    const wall10: [number, number, number][] = [[2, -50, 0], [2, 50, 0], [2, 50, -10], [2, -50, -10]];
+    const floor10: [number, number, number][] = [[2, -50, -10], [2, 50, -10], [60, 50, -10], [60, -50, -10]];
+    const sub = Surface.fromMesh(quads(top, wall10, floor10));
+    const subToe = findToe(short, sub, opts, { floorZ: -12 });
+    expect(subToe).not.toBeNull();
+    expect(subToe!.s).toBeCloseTo(2, 6);
+    expect(subToe!.z).toBeGreaterThanOrEqual(-10);
+    expect(subToe!.z).toBeLessThanOrEqual(-8);
+    // Fönstret når ändå pallbotten, två meter under ytan
+    expect(profileExtents(short, opts, { floorZ: -12, toe: subToe }).zMin).toBeCloseTo(-12 - 1.5, 6);
+    // Slänt 60° från krönet vid x=2 ned till -20 och plan botten, pallbotten -12: sökfönstret når -15, foten är
+    // första punkten i bandet två meter över det, dvs där slänten passerar -13, x = 2 + 13 / tan 60°
+    const dx = 20 / Math.tan((60 * Math.PI) / 180);
+    const slopeWall: [number, number, number][] = [[2, -50, 0], [2, 50, 0], [2 + dx, 50, -20], [2 + dx, -50, -20]];
+    const slopeFloor: [number, number, number][] = [[2 + dx, -50, -20], [2 + dx, 50, -20], [60, 50, -20], [60, -50, -20]];
+    const sloped = Surface.fromMesh(quads(top, slopeWall, slopeFloor));
+    const r = computeHole(sloped, { id: "k", collar: [0, 0, 0], stations: [
+      { depth: 0, bearing: 90, inclination: 14 },
+      { depth: 4, bearing: 90, inclination: 14 },
+    ] }, opts);
+    const toe = findToe(r, sloped, opts, { floorZ: -12 });
+    expect(toe).not.toBeNull();
+    expect(toe!.z).toBeCloseTo(-13, 6);
+    expect(toe!.s).toBeCloseTo(2 + 13 / Math.tan((60 * Math.PI) / 180), 4);
+    const own = profileExtents(r, opts);
+    const E = profileExtents(r, opts, { floorZ: -12, toe });
+    expect(E.sMax).toBeCloseTo(toe!.s + 2.0, 6);
+    expect(E.sMax).toBeLessThan(profileExtents(r, opts, { floorZ: -12 }).sMax);
+    expect(E.sMax).toBeGreaterThan(own.sMax);
+    // Modell som slutar mitt i väggen: lägsta modellerade punkt blir foten, så att bilden når så långt modellen går
+    const shallow = Surface.fromMesh(quads(top, [[2, -50, 0], [2, 50, 0], [2, 50, -6], [2, -50, -6]]));
+    const shallowToe = findToe(short, shallow, opts, { floorZ: -12 });
+    expect(shallowToe!.s).toBeCloseTo(2, 6);
+    expect(shallowToe!.z).toBeGreaterThanOrEqual(-6);
+    expect(shallowToe!.z).toBeLessThanOrEqual(-4);
+  });
+
+  it("hela bergprofilen i bild: höjden ger skalan, hålets bild mitt i, slänten så långt bilden räcker", () => {
     const phone = { compact: true, showFront: false, width: 420, height: 700 };
     const own = profileLayout(short, opts, phone);
     // Fot långt bort: slänten får inte plats i sin helhet, men skalan följer ändå höjden
@@ -279,15 +336,17 @@ describe("profilens fönster", () => {
     expect(L.k).toBeCloseTo(L.plotH / (L.zMax - L.zMin), 6);
     expect((L.sMax - L.sMin) * L.k).toBeCloseTo(L.plotW, 6);
     expect(L.sMax).toBeLessThan(far.s);
-    // Hålets egen bild får plats, och påhugget står 30 % av bredden från högerkanten
+    // Hålets egen bild får plats och står mitt i bilden, med minst 44 bildpunkter till höger om påhugget
     expect(L.ownSMax).toBeLessThanOrEqual(L.sMax + 1e-9);
+    expect((L.sMin + L.sMax) / 2).toBeCloseTo((own.sMin + own.ownSMax) / 2, 6);
     const sRaw = own.sMin + 1.6;
-    expect((sRaw - L.sMin) * L.k).toBeCloseTo(0.3 * L.plotW, 6);
-    // Fot nära: samma skala, foten med i bild
+    expect((sRaw - L.sMin) * L.k).toBeGreaterThanOrEqual(44 - 1e-6);
+    // Fot nära: samma skala och samma fönster, hålets bild står i mitten oavsett var foten är
     const near = { s: 5.5, z: -11 };
     const N = profileLayout(short, opts, { ...phone, floorZ: -12, toe: near });
     expect(N.k).toBeCloseTo(L.k, 6);
-    expect(N.sMax).toBeGreaterThan(near.s);
+    expect(N.sMin).toBeCloseTo(L.sMin, 6);
+    expect(N.sMax).toBeCloseTo(L.sMax, 6);
     // Snittet till telefonen täcker fönstret i stående och liggande format
     for (const size of [{ width: 420, height: 700 }, { width: 844, height: 500 }]) {
       const Lx = profileLayout(short, opts, { ...phone, ...size, floorZ: -12, toe: far });
@@ -300,42 +359,6 @@ describe("profilens fönster", () => {
     const drawn = drawProfile(short, Array.from(sectionSegments(surface, win.frame, win)), opts, { ...phone, floorZ: -12, toe: far });
     expect(drawn.layout.k).toBeCloseTo(L.k, 6);
     expect(drawn.svg).toContain("<svg");
-  });
-
-  it("foten hittas i modellen där bergytan når pallbottens nivå", () => {
-    // Av: ingen fot. Botten ovanför hålets egen: ingen fot.
-    expect(findToe(short, surface, opts, {})).toBeNull();
-    expect(findToe(short, surface, opts, { floorZ: 0 })).toBeNull();
-    // Lodrät vägg vid s=2 ned till -20, pallbotten -12: foten står rakt under, ingen extra bredd
-    const wallToe = findToe(short, surface, opts, { floorZ: -12 });
-    expect(wallToe).not.toBeNull();
-    expect(wallToe!.s).toBeCloseTo(2, 6);
-    expect(wallToe!.z).toBeGreaterThanOrEqual(-15);
-    expect(wallToe!.z).toBeLessThanOrEqual(-10);
-    expect(profileExtents(short, opts, { floorZ: -12, toe: wallToe }).sMax).toBeCloseTo(profileExtents(short, opts).sMax, 6);
-    // Slänt 60° från krönet vid x=2 ned till -20 och plan botten: foten är den första punkten i bandet kring
-    // pallbotten -12, dvs där slänten passerar -10, x = 2 + 10 / tan 60°
-    const dx = 20 / Math.tan((60 * Math.PI) / 180);
-    const slopeWall: [number, number, number][] = [[2, -50, 0], [2, 50, 0], [2 + dx, 50, -20], [2 + dx, -50, -20]];
-    const slopeFloor: [number, number, number][] = [[2 + dx, -50, -20], [2 + dx, 50, -20], [60, 50, -20], [60, -50, -20]];
-    const sloped = Surface.fromMesh(quads(top, slopeWall, slopeFloor));
-    const r = computeHole(sloped, { id: "k", collar: [0, 0, 0], stations: [
-      { depth: 0, bearing: 90, inclination: 14 },
-      { depth: 4, bearing: 90, inclination: 14 },
-    ] }, opts);
-    const toe = findToe(r, sloped, opts, { floorZ: -12 });
-    expect(toe).not.toBeNull();
-    expect(toe!.z).toBeCloseTo(-10, 6);
-    expect(toe!.s).toBeCloseTo(2 + 10 / Math.tan((60 * Math.PI) / 180), 4);
-    // Fönstret når foten, och mindre än 45°-antagandet skulle ge
-    const own = profileExtents(r, opts);
-    const E = profileExtents(r, opts, { floorZ: -12, toe });
-    expect(E.sMax).toBeCloseTo(toe!.s + 2.0, 6);
-    expect(E.sMax).toBeLessThan(profileExtents(r, opts, { floorZ: -12 }).sMax);
-    expect(E.sMax).toBeGreaterThan(own.sMax);
-    // Modell utan botten inom räckhåll: ingen fot, reserven gäller
-    const shallow = Surface.fromMesh(quads(top, [[2, -50, 0], [2, 50, 0], [2, 50, -6], [2, -50, -6]]));
-    expect(findToe(short, shallow, opts, { floorZ: -12 })).toBeNull();
   });
 
   it("spöklinjen kan stängas av i snittet och framifrån, och räknas då inte in i fönstret", () => {

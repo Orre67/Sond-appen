@@ -40,15 +40,17 @@ Flikar:
   ytpunkter och hålet (streckat, bakom väggen) ovanpå. Meterskalor på kanterna: höjd på
   sidorna, sidledes läge från hålet längs nederkanten. Piltangenterna byter hål. "Visa alla"
   staplar alla hål. Fönstret passas normalt till varje hål för sig; kryssrutan "Korta hål visar
-  hela slänten" visar i stället hela bergprofilen: från ytan bakom påhugget ut till foten, och
-  från påhugget ned till pallbotten. Pallbotten är salvans lägsta hålbotten, och foten hittas i
-  modellen som den första punkten i snittet, räknat från hålet ut mot stuffen, där bergytan når
-  pallbottens nivå. Ett kort hål, till exempel där sonden stoppat, syns då på sin plats i hela
-  slänten. Höjden ger skalan: påhugget står 30 % av bredden från högerkanten, med plats för
-  djupsiffrorna och senare hålet bakom, och slänten visas så långt åt vänster som bilden räcker,
-  så foten kan hamna utanför på en smal skärm. Hittas ingen
-  fot antas slänten inte flackare än 45°. Hål som redan når botten ändras inte. Valet och foten
-  per hål följer med till telefonen vid publicering.
+  hela slänten" visar i stället hela bergprofilen i salvans ram: i höjdled från salvans högsta
+  påhugg ned till pallbotten, salvans lägsta hålbotten, lika för alla hål, så att ett hål med
+  lägre påhugg står lägre i bilden; i sidled från ytan bakom påhugget ut till foten. Foten hittas
+  i modellen som den första punkten i snittet, räknat från hålet ut mot stuffen, där bergytan
+  kommer ned till sin lägsta nivå i snittet. Löst berg framför stuffen är bergyta i modellen, så
+  foten hamnar på rasmassan och hålen syns fortsätta under den. Ett kort hål, till exempel där
+  sonden stoppat, syns på sin plats i hela slänten. Höjden ger skalan: hålets egen bild står mitt i
+  bilden, slänten fyller vänster sida så långt bilden räcker och marken bakom påhugget höger, så
+  foten kan hamna utanför på en smal skärm. Ett hål som står lodrätt i snittet hamnar mitt i bilden.
+  Hittas ingen fot antas slänten inte flackare än 45°. Valet, ramen och foten per hål följer
+  med till telefonen vid publicering.
 - **3D**: ytan med textur, hålen och mätlinjerna. Klick på ett hål väljer det.
 - **Översikt**: salvan uppifrån på en ortofotobild av modellen, hålen färgade efter sin
   minsta försättning. Klick väljer hål.

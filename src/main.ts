@@ -867,6 +867,7 @@ function profileStyle(): Partial<ProfileStyle> {
     showFront: state.showFront,
     mergeLabelsWithin: state.mergeLabels ? 0.2 : 0,
     floorZ: floorZ(),
+    topZ: topZ(),
   };
 }
 
@@ -878,6 +879,14 @@ function floorZ(): number | null {
     const last = r.path.points[r.path.points.length - 1];
     if (last) z = Math.min(z, last[2]);
   }
+  return Number.isFinite(z) ? z : null;
+}
+
+/** Salvans högsta påhugg bland de beräknade hålen när "korta hål visar hela slänten" är på, annars null. */
+function topZ(): number | null {
+  if (!state.showFloor) return null;
+  let z = -Infinity;
+  for (const r of state.results) z = Math.max(z, r.path.collar[2]);
   return Number.isFinite(z) ? z : null;
 }
 
@@ -1365,6 +1374,7 @@ function buildShareBundle(salva: { site: string; date: string; note: string }): 
     showSticks: state.showSticks,
     mergeLabelsWithin: state.mergeLabels ? 0.2 : 0,
     floorZ: floorZ(),
+    topZ: topZ(),
   };
   // Telefonens ritsätt: kompakt, utan spöklinje. Snittet skärs ut med samma fönster som telefonen ritar med.
   const phone = { ...style, compact: true, showGhost: false };

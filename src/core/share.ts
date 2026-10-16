@@ -28,8 +28,8 @@ export interface ShareBundle {
   name: string;
   created: string;
   opts: BurdenOptions;
-  /** Ritval från skrivbordet som telefonen följer. floorZ: fönstret ned till salvans lägsta botten, saknas i äldre paket. */
-  style: Pick<ProfileStyle, "showSkipped" | "showTrace" | "showSticks" | "mergeLabelsWithin"> & { floorZ?: number | null };
+  /** Ritval från skrivbordet som telefonen följer. floorZ och topZ: hela bergprofilen med salvans ram i höjdled, saknas i äldre paket. */
+  style: Pick<ProfileStyle, "showSkipped" | "showTrace" | "showSticks" | "mergeLabelsWithin"> & { floorZ?: number | null; topZ?: number | null };
   /** Färgregeln i klartext, t.ex. "Rött < 1,5 m, blått > 3,5 m, från 1,0 m djup". */
   rule: string;
   /** Plats, datum och anteckning från publiceringsrutan (version 3). */
