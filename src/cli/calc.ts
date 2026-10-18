@@ -2,7 +2,7 @@
  * Kommandoradsverktyg för steg 1: läser yta, startpunkter och DM4-filer,
  * räknar försättning och skriver tabell samt CSV.
  *
- *   npm run calc -- --surface yta.obj --points start.txt --dm4 a.dm4 b.dm4 [--interval 0.5] [--min 1.5] [--max 3.5] [--hole 20] [--out out/forsattning.csv]
+ *   npm run calc -- --surface yta.obj --points start.txt --dm4 a.dm4 b.dm4 [--interval 0.5] [--min 2] [--max 3.5] [--hole 20] [--out out/forsattning.csv]
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
@@ -131,7 +131,7 @@ const sv = (v: number | null, d = 2) => (v === null ? "" : v.toFixed(d).replace(
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.surface || !args.points || args.dm4.length === 0) {
-    console.error("Användning: --surface <fil> --points <fil> --dm4 <fil...> [--rig plan.xml logg.xml --interval 0.5 --min 1.5 --max 3.5 --start 1 --mode stick|point --fine 0.05 --correction 0 --auto --date 2026-10-01 --method average|tangent --hole 20 --out fil.csv --svg out/profiler --dxf out/kontroll.dxf --holes 19,20]");
+    console.error("Användning: --surface <fil> --points <fil> --dm4 <fil...> [--rig plan.xml logg.xml --interval 0.5 --min 2 --max 3.5 --start 1 --mode stick|point --fine 0.05 --correction 0 --auto --date 2026-10-01 --method average|tangent --hole 20 --out fil.csv --svg out/profiler --dxf out/kontroll.dxf --holes 19,20]");
     process.exit(1);
   }
   const t0 = performance.now();

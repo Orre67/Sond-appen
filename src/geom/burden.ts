@@ -42,7 +42,7 @@ export const DEFAULT_OPTIONS: BurdenOptions = {
   fineStep: 0.05,
   method: "average",
   bearingCorrection: 0,
-  minBurden: 1.5,
+  minBurden: 2,
   maxBurden: 3.5,
   backTolerance: 0.05,
   startDepth: 1.0,

@@ -548,7 +548,7 @@ function readOptions(): BurdenOptions {
     startDepth: Math.max(0, num("opt-start", 1)),
     free3dFromDepth: Math.max(0, num("opt-free", 0)),
     fineStep: Math.min(0.5, Math.max(0.01, num("opt-fine", 0.05))),
-    minBurden: num("opt-min", 1.5),
+    minBurden: num("opt-min", 2),
     maxBurden: num("opt-max", 3.5),
     bearingCorrection: num("opt-corr", 0) + (state.autoCorr && state.autoInfo ? state.autoInfo.correction : 0),
     method: $<HTMLSelectElement>("opt-method").value === "tangent" ? "tangent" : "average",

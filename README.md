@@ -146,7 +146,7 @@ Lägg till `&tab=scene`, `plan` eller `table` för att öppna en viss flik direk
 ## Kommandoradsverktyget
 
 ```
-npm run calc -- --surface yta.obj --points startpunkter.txt --dm4 fil1.dm4 fil2.dm4 --interval 0.5 --min 1.5 --max 3.5 --start 1 --hole 20 --svg out/profiler
+npm run calc -- --surface yta.obj --points startpunkter.txt --dm4 fil1.dm4 fil2.dm4 --interval 0.5 --min 2 --max 3.5 --start 1 --hole 20 --svg out/profiler
 ```
 
 | Flagga | Betydelse | Standard |
@@ -158,7 +158,7 @@ npm run calc -- --surface yta.obj --points startpunkter.txt --dm4 fil1.dm4 fil2.
 | `--interval` | Måttstickans längd, eller avståndet mellan punkter i punktläge, m | 1.0 |
 | `--mode` | `stick`: sämsta värdet inom varje sticka. `point`: värdet i punkten | stick |
 | `--fine` | Internt söksteg längs hålet, styr även ytspåret, m | 0.05 |
-| `--min` | Under detta blir punkten röd, m | 1.5 |
+| `--min` | Under detta blir punkten röd, m | 2 |
 | `--max` | Över detta blir punkten blå, m | 3.5 |
 | `--start` | Startdjup: punkter grundare än detta visas som "skipped" och räknas inte in i minsta försättning. Här läggs också startplanet vinkelrätt mot hålet, ingen yta ovanför det räknas, m | 1 |
 | `--free` | Fri 3D från djup: ovanför detta djup används i stället planet vinkelrätt mot hålet (äldre regel). 0 = fri 3D hela vägen, m | 0 |
