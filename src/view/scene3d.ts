@@ -400,8 +400,17 @@ export class Scene3D {
     return this.renderWithCamera(cam, px, py, false, quality);
   }
 
-  /** Renderar bara ytan med given kamera. Med transparent blir allt utanför modellen genomskinligt. */
-  private renderWithCamera(cam: THREE.Camera, px: number, py: number, transparent = false, quality = 0.85): string {
+  /** Bild av vyn som den står: nuvarande kamera med hål, mått och etiketter, i given bredd och vyns proportioner. JPEG som data-URL. */
+  snapshot(widthPx = 1800, quality = 0.9): string {
+    const px = Math.max(1, Math.round(widthPx));
+    return this.renderWithCamera(this.camera, px, Math.max(1, Math.round(px / this.camera.aspect)), false, quality, false);
+  }
+
+  /**
+   * Renderar med given kamera till en data-URL: bara ytan, eller med surfaceOnly=false allt som
+   * visas. Med transparent blir allt utanför modellen genomskinligt.
+   */
+  private renderWithCamera(cam: THREE.Camera, px: number, py: number, transparent = false, quality = 0.85, surfaceOnly = true): string {
     const prev = new THREE.Vector2();
     this.renderer.getSize(prev);
     const prevPixelRatio = this.renderer.getPixelRatio();
@@ -409,7 +418,7 @@ export class Scene3D {
     const prevClear = new THREE.Color();
     this.renderer.getClearColor(prevClear);
     const prevAlpha = this.renderer.getClearAlpha();
-    const groups = [this.holesGroup, this.linesGroup, this.labelsGroup, this.pointsGroup];
+    const groups = surfaceOnly ? [this.holesGroup, this.linesGroup, this.labelsGroup, this.pointsGroup] : [];
     const vis = groups.map((g) => g.visible);
     groups.forEach((g) => (g.visible = false));
     if (transparent) {

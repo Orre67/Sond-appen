@@ -61,7 +61,7 @@
             <button id="btn-csv" disabled>CSV</button>
             <button id="btn-svg" disabled>SVG, valt hål</button>
             <button id="btn-dxf" disabled title="Ytpunkter, mätlinjer och hålbanor som 3D-linjer, ett lager per hål">DXF, alla hål</button>
-            <button id="btn-print" disabled>Skriv ut alla</button>
+            <button id="btn-report" disabled title="Försättsblad med tabell, översikten, bilderna från 3D-vyn och ett profilkort per hål, A4 liggande. Öppnas i en ny flik för utskrift till PDF.">Rapport</button>
           </div>
         </section>
         <section class="panel">
@@ -77,14 +77,14 @@
         <ul id="warnings" class="warnings"></ul>
         <dialog id="publish-dialog" class="publish-dialog">
           <form method="dialog">
-            <h3>Publicera till telefonerna</h3>
+            <h3 id="pub-title">Publicera till telefonerna</h3>
             <label>Plats<input id="pub-site" required maxlength="80" /></label>
             <label>Inmätningsdatum<input id="pub-date" type="date" required /></label>
             <label>Anteckning<input id="pub-note" maxlength="200" placeholder="valfritt" /></label>
-            <p class="hint">Samma plats och datum ersätter en tidigare publicering.</p>
+            <p id="pub-hint" class="hint">Samma plats och datum ersätter en tidigare publicering.</p>
             <div class="row">
               <button value="cancel" class="secondary" formnovalidate>Avbryt</button>
-              <button value="ok">Publicera</button>
+              <button id="pub-ok" value="ok">Publicera</button>
             </div>
           </form>
         </dialog>
@@ -114,7 +114,14 @@
             <p class="empty">Läs in yta, startpunkter och sondering så visas profilerna här.</p>
           </div>
         </section>
-        <section id="tab-scene" class="tab"><div id="scene-container"></div></section>
+        <section id="tab-scene" class="tab">
+          <div class="toolbar">
+            <button id="snap-take" class="secondary" title="Sparar vyn som den står, med hål och mått, till rapporten. Ta gärna flera bilder från olika håll; de kommer med i den ordning de togs." disabled>Ta bild till rapporten</button>
+            <div id="snap-list" class="snap-list"></div>
+            <span class="hint toolbar-hint">Vrid och zooma vyn, ta sedan en bild. Bilderna följer med i rapporten.</span>
+          </div>
+          <div id="scene-container"></div>
+        </section>
         <section id="tab-plan" class="tab">
           <div class="toolbar">
             <button id="plan-fit" class="secondary" title="Visa hela ytan. Scrollhjulet zoomar kring pekaren, dra för att flytta, dubbelklick visar hela ytan.">Hela ytan</button>
@@ -128,6 +135,11 @@
             <button id="num-clear" class="secondary" title="Tar bort alla nummer och startar numreringen från startvärdet">Nollställ numrering</button>
             <button id="num-reset" class="secondary" title="Återgår till numren i startpunktsfilen" disabled>Originalnummer</button>
             <span id="plan-hint" class="hint toolbar-hint"></span>
+          </div>
+          <div class="toolbar">
+            <button id="plan-snap" class="secondary" title="Sparar fönstret som det visas till rapporten. Zooma så att numren går att läsa; ta flera bilder för en lång salva." disabled>Ta bild till rapporten</button>
+            <div id="plan-snap-list" class="snap-list"></div>
+            <span class="hint toolbar-hint">Zooma så att numren syns och ta en bild, flera för en lång salva. Utan bild tar rapporten ett fönster kring hålen.</span>
           </div>
           <div id="plan-container"><p class="empty">Översikten visas när en yta och startpunkter finns.</p></div>
         </section>

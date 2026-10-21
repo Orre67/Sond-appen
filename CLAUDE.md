@@ -30,6 +30,7 @@ npm test               # vitest, syntetiska ytor + exempelfiler om de finns
 npm run build          # tsc --noEmit && vite build
 npm run calc -- ...    # kommandoradsverktyget, flaggor i README
 node scripts/screenshot.mjs   # röktest i headless Chrome mot demoläget (kräver dev-servern)
+node scripts/report-check.mjs # rapporten som out/rapport.pdf via demoläget (kräver dev-servern och out/demo-url.txt)
 ```
 
 Exempelfiler ligger utanför repot, under `C:\Users\oscar\Desktop\filer till claude\`:

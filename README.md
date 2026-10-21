@@ -11,8 +11,9 @@ minsta avståndet till ytan. Allt körs lokalt i webbläsaren, inga filer laddas
 - Webbgränssnitt med profilbilder, 3D-vy, översikt, tabell, omnumrering, borttagning och ångra: klart.
 - Publik app på Vercel med telefonsida för sprängarna: i drift, se nedan.
 - Borrplan och kvalitetslogg från riggen (IREDES) i 3D, översikt och profiler: klart.
-- Återstår: rapport, nytt gränssnitt, norrpil i översikten, siffror på avvikelsen mellan logg och
-  sondering. Utskrift till PDF går via knappen "Skriv ut alla".
+- Rapport: försättsblad med tabell, översikt, bilder ur 3D-vyn och ett profilkort per hål, PDF via
+  webbläsarens utskrift: första utkast, se nedan.
+- Återstår: nytt gränssnitt, norrpil i översikten, siffror på avvikelsen mellan logg och sondering.
 
 Arbetsrutiner och regler för koden står i [CLAUDE.md](CLAUDE.md).
 
@@ -70,11 +71,11 @@ sida per hål och kan sparas som PDF i webbläsarens utskriftsdialog.
 ## Översikten: skjutriktning och omnumrering
 
 Fliken Översikt visar ortofotot uppifrån med hålens påhugg, nummer och spår i svagt grått under markörerna, utan
-mått och färger, samt startpunkter som saknar sondering (grå) eller nummer (ihåliga). På telefonen börjar
-vyn på hålen, inte på hela modellen, och tätheten styr vad som ritas: står hålen tätt i bild
-visas bara prickar, annars ringar med numret inuti, små först och större med mer plats, och med
-gott om plats även riggens linjer. Scrollhjulet zoomar, dra flyttar
-kartan och "Hela ytan" återställer. Utan angiven skjutriktning vrids kartan efter salvans riktning
+mått och färger, samt startpunkter som saknar sondering (grå) eller nummer (ihåliga). Vyn börjar på
+hålen, inte på hela modellen, på skrivbordet som på telefonen, och tätheten styr vad som ritas: står
+hålen tätt i bild visas bara prickar, annars vita ringar med numret inuti, små först och större med
+mer plats, och med gott om plats även riggens linjer. Markörerna har skärmstorlek och ritas om efter
+varje zoomsteg. Scrollhjulet zoomar, dra flyttar kartan och "Hela ytan" visar hela modellen. Utan angiven skjutriktning vrids kartan efter salvans riktning
 mot stuffen, räknad ur hålens försättningar och visad som "auto" i fältet. Ange skjutriktningen i grader, eller tryck
 "Rita riktning" och dra en linje längs raden från höger till vänster: riktningen blir vinkelrät
 mot linjen och kartan vrids så att den pekar uppåt. Hålens spår ska då peka uppåt.
@@ -84,6 +85,23 @@ bort alla nummer, klicka sedan på hålen i tur och ordning så får de 1, 2, 3 
 "Numrera onumrerade" ger resten nummer i filens ordning från sista numret. Upptagna nummer hoppas
 över. "Originalnummer" återgår till filens numrering. Omnumreringen och skjutriktningen sparas i
 webbläsaren per fil, och hålets ursprungliga nummer visas inom parentes under det nya.
+
+## Rapporten
+
+Knappen Rapport under Export frågar efter plats, inmätningsdatum och anteckning (förifyllda ur
+filnamnen) och öppnar rapporten i en ny flik, A4 liggande: ett försättsblad med regeln,
+inställningarna och en tabell över hålen (längd, minsta försättning, på vilket djup, bedömning),
+en översiktssida per bild tagen på Översikt-fliken (utan bild: ett fönster kring hålen), bilderna
+från 3D-vyn och sedan ett profilkort per hål med snittet och väggen framifrån. Skriv ut från fliken
+och välj Spara som PDF, med webbläsarens sidhuvud och sidfot avstängda. Länken "Spara som HTML-fil"
+sparar rapporten som en fristående fil med alla bilder inbakade. Spöklinjen ritas inte i rapporten.
+
+Bilderna tas med knappen "Ta bild till rapporten" på 3D-fliken och på Översikt-fliken. I 3D sparas
+vyn som den står, med hål och mått. I översikten sparas det synliga fönstret, och rapporten ritar det
+på nytt med telefonens markörer, vita ringar med numret inuti, alltid, oavsett täthet: zooma så att
+numren går att läsa och ta flera bilder för en lång salva. Miniatyrerna visas i verktygsraden och kan
+tas bort där; listorna töms när en ny yta läses in. Dokumentet byggs av `src/core/report.ts` ur
+färdiga strängar och tal, utan DOM, så det kan testas och senare skrivas från kommandoradsverktyget.
 
 ## Mobilsidan för sprängarna
 
@@ -266,6 +284,8 @@ syntetiska ytor med känt facit, samt mot Torphyttan-filerna om de finns på skr
 beräknade och fotar alla flikar till `out/app-*.png`. Kräver att `npm run dev` kör.
 `scripts/phone-shot.mjs`, `plan-shot.mjs` och `scene-shot.mjs` fotar telefonsidan, översikten och
 3D-vyn; `scripts/vercel-smoke.mjs` kör hela publiceringsflödet mot en adress.
+`scripts/report-check.mjs` tar två bilder i 3D-vyn, skapar rapporten och sparar den som
+`out/rapport.pdf` för granskning av sidbrytningarna.
 
 ## Kodstruktur
 
@@ -276,7 +296,8 @@ beräknade och fotar alla flikar till `out/app-*.png`. Kräver att `npm run dev`
 - `src/geom/section.ts` snitt genom ytan, hålets, försättningens och snittets bäring
 - `src/geom/geodesy.ts` SWEREF 99 TM till latitud/longitud, meridiankonvergens, missvisning (WMM2025)
 - `src/core/project.ts` koppling startpunkter, rigg och sondering; `numbering.ts` omnumrering;
-  `history.ts` ångra-motor; `share.ts` delningspaket; `catalog.ts` publiceringsregister; `csv.ts`, `dxf.ts` export
+  `history.ts` ångra-motor; `share.ts` delningspaket; `catalog.ts` publiceringsregister; `report.ts` rapporten som
+  fristående HTML; `csv.ts`, `dxf.ts` export
 - `src/view/profile.ts` profilbild som SVG, `plan.ts` översikt, `scene3d.ts` 3D-vy, `table.ts` tabell,
   `hover.ts` avläsning, `panzoom.ts` telefonens zoom
 - `src/workers/parse.worker.ts` inläsning av stora filer i bakgrundstråd

@@ -18,10 +18,11 @@ import type { Bounds, MeshData } from "./io/mesh";
 import { parseMtl } from "./io/obj";
 import { normalizeId, parseStartPoints, type StartPoint } from "./io/startpoints";
 import { CLASS_COLORS, fmt, holeClass } from "./view/format";
-import { blastBearingFromLine, planFrame, renderPlanSvg, rotatedExtent, type PlanFrame, type PlanPoint } from "./view/plan";
+import { blastBearingFromLine, holesViewBox, planFrame, renderPlanSvg, rotatedExtent, type PlanFrame, type PlanPoint } from "./view/plan";
 import QRCode from "qrcode";
 import { publishEntry, unpublishEntry, uploadShare, type ShareBundle, type SharePlan } from "./core/share";
-import { dateFromFileName, suggestSalva } from "./core/catalog";
+import { dateFromFileName, localDate, suggestSalva } from "./core/catalog";
+import { buildReport, FIGURE_PX, fitSvg, reportFileName, type ReportData, type ViewBox } from "./core/report";
 import { attachHover } from "./view/hover";
 import { sectionSegments } from "./geom/section";
 import {
@@ -108,6 +109,12 @@ const state = {
   drawingDirection: false,
   /** Översiktens zoom och läge som viewBox, null = hela ytan. */
   planView: null as { x: number; y: number; w: number; h: number } | null,
+  /** Falskt tills översikten fått sin startvy på hålen; nollställs med ny yta och ny skjutriktning. */
+  planFramed: false,
+  /** Bilder ur 3D-vyn till rapporten, data-URL:er i den ordning de togs. Töms när en ny yta läses in. */
+  snapshots: [] as string[],
+  /** Fönster i översikten till rapporten, med en miniatyr (blob-URL) till verktygsraden. Ritas om vid rapporten, töms med ytan. */
+  planShots: [] as { view: ViewBox; thumb: string }[],
 };
 
 const scene = new Scene3D($("scene-container"));
@@ -272,9 +279,13 @@ async function loadMesh(file: File, kind: "obj" | "landxml"): Promise<void> {
   const surface = Surface.fromMesh(mesh);
   state.mesh = mesh;
   state.planView = null;
+  state.planFramed = false;
   state.meshName = file.name;
   state.surface = surface;
   state.planBg = null;
+  state.snapshots = [];
+  renderSnapshots();
+  clearPlanShots();
   const ms = Math.round(performance.now() - t0);
   const b = surface.bounds;
   setFile(
@@ -451,7 +462,9 @@ function saveBlastBearing(): void {
 function setBlastBearing(value: number | null): void {
   state.blastBearing = value;
   state.blastBearingFor = siteKey();
+  // Ramen vrids, så fönstret gäller inte längre: börja om på hålen.
   state.planView = null;
+  state.planFramed = false;
   try {
     if (value === null) localStorage.removeItem(bearingKey(siteKey()));
     else localStorage.setItem(bearingKey(siteKey()), String(value));
@@ -729,7 +742,9 @@ function recompute(): void {
   renderPlan();
   renderTableView();
   const has = state.results.length > 0;
-  for (const id of ["btn-csv", "btn-svg", "btn-dxf", "btn-print", "btn-share"]) $<HTMLButtonElement>(id).disabled = !has;
+  for (const id of ["btn-csv", "btn-svg", "btn-dxf", "btn-report", "btn-share"]) $<HTMLButtonElement>(id).disabled = !has;
+  $<HTMLButtonElement>("snap-take").disabled = !state.surface && state.sceneResults.length === 0;
+  $<HTMLButtonElement>("plan-snap").disabled = !state.surface;
 }
 
 // ---------- Hål-lista och val ----------
@@ -915,9 +930,9 @@ function topZ(): number | null {
   return Number.isFinite(z) ? z : null;
 }
 
-/** Stil för ett hål, med bilden av väggen framifrån renderad ur 3D-modellen. */
-function profileStyleFor(r: HoleResult): Partial<ProfileStyle> {
-  const style = profileStyle();
+/** Stil för ett hål utifrån skrivbordets ritval (eller angivna), med foten och bilden av väggen framifrån ur 3D-modellen. */
+function profileStyleFor(r: HoleResult, base: Partial<ProfileStyle> = profileStyle()): Partial<ProfileStyle> {
+  const style = { ...base };
   // Foten hittas i modellen en gång här, så att snitt och vy framifrån får samma fönster.
   if (style.floorZ !== null && state.surface) style.toe = findToe(r, state.surface, state.opts, style);
   if (!style.showFront) return style;
@@ -986,22 +1001,23 @@ function renderPlan(): void {
     c.innerHTML = `<p class="empty">Översikten visas när en yta, en borrplan eller en kvalitetslogg är inläst.</p>`;
     return;
   }
-  const points = pointsWithoutHole();
-  const bg = state.surface && state.planBg && state.planBgSurface === state.surface ? { dataUrl: state.planBg } : null;
-  // Ramen följer modellens verkliga utbredning i den vridna vyn, inte dess rektangel i E N.
-  const bearing = planBearing();
-  const extent = state.surface && state.mesh ? rotatedExtent(state.mesh.positions, bounds, bearing, 4) : null;
-  const frame = planFrame(bounds, bearing, 3, extent);
-  const toPlanLine = (l: RigLine) => ({ id: l.id, e0: l.start[0], n0: l.start[1], e1: l.end[0], n1: l.end[1] });
+  const { points, bg, frame, extras } = planParts(bounds);
+  // Startvyn ligger på hålen, som på telefonen; "Hela ytan" och dubbelklick visar hela modellen.
+  if (!state.planFramed) {
+    const items = [...state.sceneResults.map((r) => ({ e: r.path.collar[0], n: r.path.collar[1] })), ...points];
+    const v = holesViewBox(frame, items);
+    if (v) {
+      state.planView = v;
+      state.planFramed = true;
+    }
+  }
+  const view = state.planView ?? { x: 0, y: 0, w: frame.w, h: frame.h };
   c.innerHTML = renderPlanSvg(state.sceneResults, state.opts, bounds, bg, state.selectedId, {
-    bearing,
-    points,
-    sourceIds: state.sourceIds,
+    ...extras,
     numbering: state.numbering !== null,
-    extent,
     selectedSource: state.selectedSource,
-    rigLines: { plan: rigLines("plan").map(toPlanLine), quality: rigLines("quality").map(toPlanLine) },
-    modelFrame: state.surface !== null,
+    // Markörer i skärmstorlek, med telefonens täthetsregel: ringar med numret inuti, prickar när det är tätt.
+    pixelScale: planPixelScale(view),
   });
   const svg = c.querySelector("svg");
   if (!svg) return;
@@ -1023,6 +1039,83 @@ function renderPlan(): void {
   }
   attachPlanNavigation(svg, frame);
   attachDirectionDrawing(svg, frame);
+}
+
+/** Översiktens underlag: punkter utan hål, bakgrund, ram och tillägg till renderPlanSvg, gemensamt för fliken och rapporten. */
+function planParts(bounds: Bounds) {
+  const points = pointsWithoutHole();
+  const bg = state.surface && state.planBg && state.planBgSurface === state.surface ? { dataUrl: state.planBg } : null;
+  // Ramen följer modellens verkliga utbredning i den vridna vyn, inte dess rektangel i E N.
+  const bearing = planBearing();
+  const extent = state.surface && state.mesh ? rotatedExtent(state.mesh.positions, bounds, bearing, 4) : null;
+  const frame = planFrame(bounds, bearing, 3, extent);
+  const toPlanLine = (l: RigLine) => ({ id: l.id, e0: l.start[0], n0: l.start[1], e1: l.end[0], n1: l.end[1] });
+  const extras = {
+    bearing,
+    points,
+    sourceIds: state.sourceIds,
+    extent,
+    rigLines: { plan: rigLines("plan").map(toPlanLine), quality: rigLines("quality").map(toPlanLine) },
+    modelFrame: state.surface !== null,
+  };
+  return { points, bg, frame, extras };
+}
+
+/**
+ * Meter per skärmpixel i översikten för ett fönster: SVG:n fyller behållarens bredd upp till sin
+ * största höjd (100vh − 190 px) och passas in med luft. Dold flik har bredden noll; då antas 1000 px
+ * och fliken ritas om när den öppnas.
+ */
+function planPixelScale(view: ViewBox): number {
+  const c = $("plan-container");
+  // clientWidth är utan kant men med vadderingen 8 px på var sida
+  const w = c.clientWidth > 0 ? Math.max(100, c.clientWidth - 16) : 1000;
+  const h = Math.min((w * view.h) / view.w, Math.max(200, window.innerHeight - 190));
+  return Math.max(view.w / w, view.h / h);
+}
+
+/** Översikterna till rapporten: de fönster användaren tagit bilder av, annars ett kring hålen. */
+function reportPlanSvgs(): string[] {
+  if (!state.surface) return [];
+  const views = state.planShots.map((s) => s.view);
+  if (views.length === 0) {
+    const v = holesPlanView();
+    if (v) views.push(v);
+  }
+  return views.map(planSvgFor);
+}
+
+/** Översikten i ett fönster, utan markering, alltid med ringar och nummer i den storlek de får på sidans bildyta. */
+function planSvgFor(view: ViewBox): string {
+  const bounds = state.surface!.bounds;
+  const { bg, extras } = planParts(bounds);
+  const pixelScale = Math.max(view.w / FIGURE_PX.w, view.h / FIGURE_PX.h);
+  const svg = renderPlanSvg(state.sceneResults, state.opts, bounds, bg, null, { ...extras, pixelScale, markers: "rings" });
+  return fitSvg(svg, 1600, view);
+}
+
+/** Fönstret kring hålen, som telefonens startvy; hela ramen när hål saknas. */
+function holesPlanView(): ViewBox | null {
+  if (!state.surface) return null;
+  const { points, frame } = planParts(state.surface.bounds);
+  const items = [...state.sceneResults.map((r) => ({ e: r.path.collar[0], n: r.path.collar[1] })), ...points];
+  return holesViewBox(frame, items) ?? { x: 0, y: 0, w: frame.w, h: frame.h };
+}
+
+/**
+ * Det synliga fönstret i översikten: flikens viewBox utvidgad till bildens proportioner, eftersom
+ * SVG:n passas in med luft på två sidor. Så blir bilden i rapporten det användaren ser.
+ */
+function visiblePlanView(): ViewBox | null {
+  const svg = $("plan-container").querySelector("svg");
+  if (!svg) return null;
+  const vb = svg.viewBox.baseVal;
+  const r = svg.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return { x: vb.x, y: vb.y, w: vb.width, h: vb.height };
+  const s = Math.max(vb.width / r.width, vb.height / r.height);
+  const w = r.width * s;
+  const h = r.height * s;
+  return { x: vb.x - (w - vb.width) / 2, y: vb.y - (h - vb.height) / 2, w, h };
 }
 
 let planDragged = false;
@@ -1053,6 +1146,9 @@ function attachPlanNavigation(svg: SVGSVGElement, frame: PlanFrame): void {
       const w = Math.min(fit.w * 2, Math.max(fit.w / 60, v.w * k));
       const s = w / v.w;
       apply({ x: p[0] - (p[0] - v.x) * s, y: p[1] - (p[1] - v.y) * s, w, h: v.h * s });
+      // Markörerna har skärmstorlek: rita om när zoomningen stannat upp. Dra ändrar inte skalan.
+      clearTimeout(planRerender);
+      planRerender = window.setTimeout(renderPlan, 150);
     },
     { passive: false },
   );
@@ -1083,8 +1179,13 @@ function attachPlanNavigation(svg: SVGSVGElement, frame: PlanFrame): void {
   };
   svg.addEventListener("pointerup", stop);
   svg.addEventListener("pointercancel", stop);
-  svg.addEventListener("dblclick", () => apply(null));
+  svg.addEventListener("dblclick", () => {
+    apply(null);
+    renderPlan();
+  });
 }
+
+let planRerender = 0;
 
 /** Numreringsläge: klickad punkt får nästa nummer, upptagna nummer hoppas över. */
 function numberPoint(sourceId: string): void {
@@ -1251,7 +1352,63 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>(".tabs button")) 
     for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("active", b === btn);
     for (const t of document.querySelectorAll(".tab")) t.classList.toggle("active", t.id === `tab-${btn.dataset.tab}`);
     if (btn.dataset.tab === "scene") scene.resize();
+    // Dold flik har ingen storlek; markörerna får rätt skärmstorlek först när fliken syns.
+    if (btn.dataset.tab === "plan") renderPlan();
   });
+}
+
+// ---------- Bilder ur 3D-vyn till rapporten ----------
+
+$("snap-take").addEventListener("click", () => {
+  if (!scene.textureReady) {
+    alert("Texturen läses fortfarande in. Vänta en stund och försök igen, annars blir bilden svart.");
+    return;
+  }
+  state.snapshots.push(scene.snapshot(1800));
+  renderSnapshots();
+});
+
+/** Miniatyrer av de tagna bilderna i 3D-flikens verktygsrad, med kryss för att ta bort. */
+function renderSnapshots(): void {
+  const c = $("snap-list");
+  c.innerHTML = state.snapshots
+    .map((s, i) => `<span class="snap"><img src="${s}" alt="3D-bild ${i + 1}"><button type="button" data-i="${i}" title="Ta bort bilden">×</button></span>`)
+    .join("");
+  for (const b of c.querySelectorAll<HTMLButtonElement>("button")) {
+    b.addEventListener("click", () => {
+      state.snapshots.splice(Number(b.dataset.i), 1);
+      renderSnapshots();
+    });
+  }
+}
+
+$("plan-snap").addEventListener("click", () => {
+  const view = visiblePlanView();
+  if (!view || !state.surface) return;
+  // Miniatyren är samma bild som rapporten får, som blob så att den stora strängen inte ligger i DOM:en.
+  const thumb = URL.createObjectURL(new Blob([planSvgFor(view)], { type: "image/svg+xml" }));
+  state.planShots.push({ view, thumb });
+  renderPlanShots();
+});
+
+function renderPlanShots(): void {
+  const c = $("plan-snap-list");
+  c.innerHTML = state.planShots
+    .map((s, i) => `<span class="snap"><img src="${s.thumb}" alt="Översikt ${i + 1}"><button type="button" data-i="${i}" title="Ta bort bilden">×</button></span>`)
+    .join("");
+  for (const b of c.querySelectorAll<HTMLButtonElement>("button")) {
+    b.addEventListener("click", () => {
+      const [shot] = state.planShots.splice(Number(b.dataset.i), 1);
+      if (shot) URL.revokeObjectURL(shot.thumb);
+      renderPlanShots();
+    });
+  }
+}
+
+function clearPlanShots(): void {
+  for (const s of state.planShots) URL.revokeObjectURL(s.thumb);
+  state.planShots = [];
+  renderPlanShots();
 }
 
 // ---------- Export ----------
@@ -1267,16 +1424,87 @@ $("btn-svg").addEventListener("click", () => {
 $("btn-dxf").addEventListener("click", () => {
   downloadText(`kontroll-${datestamp()}.dxf`, toDxf(state.results, { startDepth: state.opts.startDepth }), "application/dxf");
 });
-$("btn-print").addEventListener("click", () => {
-  const wasAll = state.showAll;
-  state.showAll = true;
-  renderProfileView();
-  setTimeout(() => {
-    window.print();
-    state.showAll = wasAll;
-    renderProfileView();
-  }, 100);
-});
+$("btn-report").addEventListener("click", () => void makeReport());
+
+/** Rapporten: försättsblad med tabell, översikt, 3D-bilderna och ett profilkort per hål, öppnad i en ny flik för utskrift till PDF. */
+async function makeReport(): Promise<void> {
+  if (!state.surface || state.results.length === 0) return;
+  if (!scene.textureReady) {
+    alert("Texturen läses fortfarande in. Vänta en stund och försök igen, annars blir vyerna framifrån svarta.");
+    return;
+  }
+  const info = await askSalvaInfo("report");
+  if (!info || !info.site || !info.date) return;
+  // Fliken öppnas direkt på klicket. Ritandet tar flera sekunder, och öppnas fliken först efteråt
+  // räknar webbläsaren inte längre klicket som färskt och stoppar den tyst som popup.
+  const win = window.open("", "_blank");
+  if (win) {
+    win.document.write(`<!doctype html><title>Rapport</title><p style="font-family:Segoe UI,Arial,sans-serif;padding:24px">Ritar rapporten …</p>`);
+    win.document.close();
+  }
+  const btn = $<HTMLButtonElement>("btn-report");
+  btn.disabled = true;
+  btn.textContent = "Ritar …";
+  // Låt knappen hinna ritas om innan profilerna renderas.
+  await new Promise((r) => setTimeout(r, 30));
+  try {
+    const html = buildReport(buildReportData(info));
+    const name = reportFileName(info.site, info.date);
+    if (win) {
+      win.location.href = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+    } else {
+      // Stoppade webbläsaren fliken ändå laddas rapporten ned som fil i stället.
+      downloadText(name, html, "text/html");
+      alert(`Webbläsaren stoppade den nya fliken, så rapporten laddades ned som ${name} i stället.`);
+    }
+  } catch (err) {
+    win?.close();
+    alert(`Rapporten kunde inte skapas: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Rapport";
+  }
+}
+
+function buildReportData(salva: { site: string; date: string; note: string }): ReportData {
+  const surface = state.surface!;
+  // Rapportens ritsätt: skrivbordets val, men alltid med väggen framifrån och utan spöklinjen.
+  const base = { ...profileStyle(), showFront: true, showGhost: false };
+  return {
+    site: salva.site,
+    date: salva.date,
+    note: salva.note,
+    created: localDate(),
+    rule: ruleText(),
+    settings: settingsText(),
+    planSvgs: reportPlanSvgs(),
+    snapshots: [...state.snapshots],
+    holes: state.results.map((r) => ({
+      id: r.id,
+      length: r.path.length,
+      minBurden: r.minBurden,
+      minBurdenDepth: r.minBurdenDepth,
+      cls: holeClass(r, state.opts),
+      svg: renderProfileSvg(r, surface, state.opts, profileStyleFor(r, base)),
+    })),
+  };
+}
+
+/** Färgregeln i klartext, t.ex. "Rött < 2,0 m, blått > 3,5 m, från 1,0 m djup". */
+function ruleText(): string {
+  const o = state.opts;
+  return `Rött < ${fmt(o.minBurden, 1)} m, blått > ${fmt(o.maxBurden, 1)} m, från ${fmt(o.startDepth, 1)} m djup${o.free3dFromDepth > 0 ? `, fri 3D från ${fmt(o.free3dFromDepth, 1)} m` : ""}`;
+}
+
+/** Övriga inställningar i klartext till rapportens försättsblad. */
+function settingsText(): string[] {
+  const o = state.opts;
+  return [
+    o.mode === "stick" ? `Måttsticka ${fmt(o.interval, 1)} m, sämsta värde per sticka` : `Punkt var ${fmt(o.interval, 1)} m`,
+    `Metod ${o.method === "average" ? "medelvinkel" : "tangent"}`,
+    ...(Math.abs(o.bearingCorrection) > 1e-9 ? [`Bäringskorrektion ${signedDeg(o.bearingCorrection)}${state.autoCorr ? " (auto)" : ""}`] : []),
+  ];
+}
 
 $("btn-share").addEventListener("click", () => void shareToMobile());
 
@@ -1294,8 +1522,8 @@ async function shareKey(): Promise<string | null> {
 
 let publishedId: string | null = null;
 
-/** Publiceringsrutan: plats, inmätningsdatum och anteckning, förifyllda ur filnamnen. */
-function askPublishInfo(): Promise<{ site: string; date: string; note: string } | null> {
+/** Rutan för plats, inmätningsdatum och anteckning, förifyllda ur filnamnen. Samma ruta för publicering och rapport. */
+function askSalvaInfo(kind: "publish" | "report"): Promise<{ site: string; date: string; note: string } | null> {
   const dlg = $<HTMLDialogElement>("publish-dialog");
   const suggestion = suggestSalva([...state.profiles.keys()], state.meshName);
   const site = $<HTMLInputElement>("pub-site");
@@ -1304,6 +1532,10 @@ function askPublishInfo(): Promise<{ site: string; date: string; note: string } 
   site.value = suggestion.site;
   date.value = suggestion.date;
   note.value = "";
+  const publish = kind === "publish";
+  $("pub-title").textContent = publish ? "Publicera till telefonerna" : "Rapport";
+  $("pub-hint").textContent = publish ? "Samma plats och datum ersätter en tidigare publicering." : "Rapporten öppnas i en ny flik. Skriv ut den där och välj Spara som PDF.";
+  $("pub-ok").textContent = publish ? "Publicera" : "Skapa rapport";
   return new Promise((resolve) => {
     dlg.addEventListener(
       "close",
@@ -1321,7 +1553,7 @@ async function shareToMobile(): Promise<void> {
     alert("Texturen läses fortfarande in. Vänta en stund och försök igen, annars blir vyerna framifrån svarta.");
     return;
   }
-  const info = await askPublishInfo();
+  const info = await askSalvaInfo("publish");
   if (!info || !info.site || !info.date) return;
   const btn = $<HTMLButtonElement>("btn-share");
   btn.disabled = true;
@@ -1440,7 +1672,7 @@ function buildShareBundle(salva: { site: string; date: string; note: string }): 
     style,
     salva,
     plan: buildSharePlan(),
-    rule: `Rött < ${fmt(state.opts.minBurden, 1)} m, blått > ${fmt(state.opts.maxBurden, 1)} m, från ${fmt(state.opts.startDepth, 1)} m djup${state.opts.free3dFromDepth > 0 ? `, fri 3D från ${fmt(state.opts.free3dFromDepth, 1)} m` : ""}`,
+    rule: ruleText(),
     holes,
   };
 }

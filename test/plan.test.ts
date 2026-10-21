@@ -102,6 +102,12 @@ describe("täthet på telefonen", () => {
     expect(renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 3), pixelScale: 0.2 })).toContain('r="0.50"');
     expect(svg).not.toContain("plan-rig-line");
   });
+  it("rapporten tvingar ringar med numret inuti även när det är tätt", () => {
+    // Samma täthet som prickarna ovan, 10 bildpunkter: minsta ringen, radie 7 bildpunkter
+    const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 2), pixelScale: 0.2, markers: "rings" });
+    expect((svg.match(/class="ring-id"/g) ?? []).length).toBe(3);
+    expect(svg).toContain('r="1.40"');
+  });
   it("lagom: små ringar med numret inuti, utan rigglinjer", () => {
     // 5 m mellan hålen: 25 bildpunkter. Ringen får radien 25 × 0,42 = 10,5 bildpunkter.
     const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 5), pixelScale: 0.2, rigLines: rig });
@@ -120,7 +126,7 @@ describe("täthet på telefonen", () => {
     expect(svg).toContain('r="2.20"');
     expect(svg).toContain("plan-rig-line");
   });
-  it("skrivbordet påverkas inte av tätheten", () => {
+  it("utan pixelScale ritas i fasta meter, opåverkat av tätheten", () => {
     const svg = renderPlanSvg([], DEFAULT_OPTIONS, bounds, null, null, { points: row(["1", "2", "3"], 1) });
     expect((svg.match(/font-size="0.65"/g) ?? []).length).toBe(3);
     expect(svg).toContain('r="0.32"');

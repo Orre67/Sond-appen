@@ -39,6 +39,8 @@ export interface PlanExtras {
    * (telefonen, som zoomar genom att ändra viewBox), annars i fasta meter som på skrivbordet.
    */
   pixelScale: number | null;
+  /** "auto": tätheten väljer prickar eller ringar. "rings": alltid vita ringar med numret inuti, som i rapporten. */
+  markers: "auto" | "rings";
   /** Riggens raka linjer sedda uppifrån: planen prickad grå, loggen blå. */
   rigLines: { plan: PlanLine[]; quality: PlanLine[] };
   /** Streckad ram runt modellens rektangel när ortofoto saknas. Av när ingen modell finns. */
@@ -153,6 +155,7 @@ const DEFAULT_EXTRAS: PlanExtras = {
   numbering: false,
   extent: null,
   pixelScale: null,
+  markers: "auto",
   rigLines: { plan: [], quality: [] },
   modelFrame: true,
   selectedSource: null,
@@ -203,10 +206,12 @@ export function renderPlanSvg(
   const S = ex.pixelScale;
   const sz = (pixels: number, meters: number) => (S ? pixels * S : meters);
   const items = [...results.map((r) => ({ e: r.path.collar[0], n: r.path.collar[1] })), ...ex.points.map((p) => ({ e: p.e, n: p.n }))];
-  // Tätheten styr vad som ritas på telefonen: prickar när hålen står tätt i bild, annars ringar med numret
-  // inuti, små först och större med mer plats. Skrivbordet ritar siffror ovanför i meter som förut.
+  // Tätheten styr vad som ritas med pixelScale (telefonen och skrivbordet): prickar när hålen står tätt i
+  // bild, annars ringar med numret inuti, små först och större med mer plats. Utan pixelScale (tester,
+  // kommandoraden) ritas siffror ovanför i fasta meter.
+  // Rapporten tvingar ringarna: numren måste gå att läsa på papper, användaren väljer fönstret.
   const nn = S ? nearestNeighbourMedian(items) / S : Infinity;
-  const mode: "dots" | "labels" | "rings" = !S ? "labels" : nn < 16 ? "dots" : "rings";
+  const mode: "dots" | "labels" | "rings" = ex.markers === "rings" ? "rings" : !S ? "labels" : nn < 16 ? "dots" : "rings";
   const showRig = !S || nn >= 30;
   // Ringens radie följer platsen: 7 till 11 bildpunkter, så att ringarna med nummer kommer så tidigt som möjligt
   const ringPx = Math.min(11, Math.max(7, nn * 0.42));
